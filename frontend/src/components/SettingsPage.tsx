@@ -1,10 +1,19 @@
 import React, { useEffect, useState } from "react";
 import { api, Settings } from "../api";
+import {
+  desktopPermission,
+  requestDesktopPermission,
+} from "../lib/desktopNotifications";
 
-export default function SettingsPage() {
+interface Props {
+  onSettingsChanged?: (settings: Settings) => void;
+}
+
+export default function SettingsPage({ onSettingsChanged }: Props = {}) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
   const [workDirDraft, setWorkDirDraft] = useState("");
+  const [permission, setPermission] = useState<string>(desktopPermission());
 
   useEffect(() => {
     api.settings.get().then((s) => {
@@ -19,6 +28,7 @@ export default function SettingsPage() {
     try {
       const updated = await api.settings.update(patch);
       setSettings(updated);
+      onSettingsChanged?.(updated);
 
       // Apply theme immediately
       if (patch.theme) {
@@ -26,6 +36,14 @@ export default function SettingsPage() {
       }
     } finally {
       setSaving(null);
+    }
+  }
+
+  async function handleEnableDesktop() {
+    const result = await requestDesktopPermission();
+    setPermission(result);
+    if (result === "granted") {
+      await updateSetting({ notify_desktop_enabled: true });
     }
   }
 
@@ -151,6 +169,85 @@ export default function SettingsPage() {
                 />
                 <span className="settings-slider-value">{settings.max_concurrent_runs}</span>
               </div>
+            </div>
+          </div>
+
+          {/* Notifications */}
+          <div className="settings-section">
+            <div className="settings-section-header">
+              <h3>Notifications</h3>
+            </div>
+            <div className="settings-field">
+              <p className="settings-description">
+                Choose which events create an in-app notification. Desktop alerts also
+                require browser permission.
+              </p>
+              <label className="settings-checkbox">
+                <input
+                  type="checkbox"
+                  checked={settings.notify_on_task_failure}
+                  onChange={(e) =>
+                    updateSetting({ notify_on_task_failure: e.target.checked })
+                  }
+                  disabled={saving === "notify_on_task_failure"}
+                />
+                <span>Notify when a task fails</span>
+              </label>
+              <label className="settings-checkbox">
+                <input
+                  type="checkbox"
+                  checked={settings.notify_on_task_success}
+                  onChange={(e) =>
+                    updateSetting({ notify_on_task_success: e.target.checked })
+                  }
+                  disabled={saving === "notify_on_task_success"}
+                />
+                <span>Notify when a task succeeds</span>
+              </label>
+              <label className="settings-checkbox">
+                <input
+                  type="checkbox"
+                  checked={settings.notify_on_flow_completion}
+                  onChange={(e) =>
+                    updateSetting({ notify_on_flow_completion: e.target.checked })
+                  }
+                  disabled={saving === "notify_on_flow_completion"}
+                />
+                <span>Notify when a flow completes</span>
+              </label>
+            </div>
+            <div className="settings-field">
+              <label className="settings-label">Desktop notifications</label>
+              <p className="settings-description">
+                Show OS-level popups when events fire. Requires browser permission.
+              </p>
+              <label className="settings-checkbox">
+                <input
+                  type="checkbox"
+                  checked={settings.notify_desktop_enabled}
+                  onChange={(e) =>
+                    updateSetting({ notify_desktop_enabled: e.target.checked })
+                  }
+                  disabled={saving === "notify_desktop_enabled"}
+                />
+                <span>Enable desktop notifications</span>
+              </label>
+              {permission !== "granted" && permission !== "unsupported" && (
+                <button
+                  className="btn btn-sm"
+                  onClick={handleEnableDesktop}
+                  style={{ marginTop: 8 }}
+                >
+                  {permission === "denied"
+                    ? "Permission denied — enable in browser settings"
+                    : "Request browser permission"}
+                </button>
+              )}
+              {permission === "unsupported" && (
+                <p className="settings-description">
+                  This browser does not support desktop notifications.
+                </p>
+              )}
             </div>
           </div>
         </div>

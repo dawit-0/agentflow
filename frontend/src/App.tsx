@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { api, Task, Flow, Agent, Permissions } from "./api";
+import { api, Task, Flow, Agent, Permissions, Settings } from "./api";
 import { socket } from "./socket";
 import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
@@ -11,6 +11,8 @@ import FlowDashboard from "./components/FlowDashboard";
 import TaskDetailPage from "./components/TaskDetailPage";
 import NewFlowModal from "./components/NewFlowModal";
 import SettingsPage from "./components/SettingsPage";
+import DashboardPage from "./components/DashboardPage";
+import { useNotifications } from "./hooks/useNotifications";
 
 export interface TaskPrefill {
   title: string;
@@ -27,7 +29,8 @@ export default function App() {
   const [flows, setFlows] = useState<Flow[]>([]);
   const [selectedFlow, setSelectedFlow] = useState<string | null>(null);
   const [showTaskForm, setShowTaskForm] = useState(false);
-  const [view, setView] = useState<"flows" | "agents" | "settings">("flows");
+  const [view, setView] = useState<"flows" | "agents" | "settings" | "dashboard">("flows");
+  const [settings, setSettings] = useState<Settings | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [showAgentForm, setShowAgentForm] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
@@ -56,12 +59,15 @@ export default function App() {
     loadAgents();
   }, [loadTasks, loadFlows, loadAgents]);
 
-  // Load theme on startup
+  // Load settings (theme + notification prefs) on startup
   useEffect(() => {
     api.settings.get().then((s) => {
+      setSettings(s);
       document.documentElement.setAttribute("data-theme", s.theme || "dark");
     }).catch(() => {});
   }, []);
+
+  const notifications = useNotifications(settings);
 
   // Real-time updates
   useEffect(() => {
@@ -155,6 +161,14 @@ export default function App() {
           setEditingAgent(null);
           setShowAgentForm(true);
         }}
+        notifications={notifications.items}
+        unreadCount={notifications.unreadCount}
+        onMarkNotificationRead={notifications.markRead}
+        onMarkAllNotificationsRead={notifications.markAllRead}
+        onSelectTaskFromNotification={(taskId) => {
+          setSelectedTaskDetail(taskId);
+          setView("flows");
+        }}
       />
       <div className="main-layout">
         <Sidebar
@@ -195,7 +209,9 @@ export default function App() {
               onRetryTask={handleRetryTask}
             />
           ) : view === "settings" ? (
-            <SettingsPage />
+            <SettingsPage onSettingsChanged={setSettings} />
+          ) : view === "dashboard" ? (
+            <DashboardPage onSelectTask={setSelectedTaskDetail} />
           ) : view === "agents" ? (
             <AgentList
               agents={agents}

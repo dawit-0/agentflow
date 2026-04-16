@@ -24,6 +24,7 @@ class BaseProvider(ABC):
     """Interface that every execution provider must implement."""
 
     pid: Optional[int] = None  # Only set for subprocess-based providers
+    total_cost_usd: float = 0.0  # Captured from the provider's final result event
 
     @abstractmethod
     async def execute(

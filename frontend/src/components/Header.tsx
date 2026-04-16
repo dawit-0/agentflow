@@ -1,14 +1,32 @@
 import React, { useEffect, useState } from "react";
-import { api, DebugStatus, Task } from "../api";
+import { api, AppNotification, DebugStatus, Task } from "../api";
+import NotificationBell from "./NotificationBell";
+
+export type HeaderView = "flows" | "agents" | "settings" | "dashboard";
 
 interface Props {
   tasks: Task[];
-  view: "flows" | "agents" | "settings";
-  onViewChange: (view: "flows" | "agents" | "settings") => void;
+  view: HeaderView;
+  onViewChange: (view: HeaderView) => void;
   onNewAgent: () => void;
+  notifications: AppNotification[];
+  unreadCount: number;
+  onMarkNotificationRead: (id: string) => void;
+  onMarkAllNotificationsRead: () => void;
+  onSelectTaskFromNotification?: (taskId: string) => void;
 }
 
-export default function Header({ tasks, view, onViewChange, onNewAgent }: Props) {
+export default function Header({
+  tasks,
+  view,
+  onViewChange,
+  onNewAgent,
+  notifications,
+  unreadCount,
+  onMarkNotificationRead,
+  onMarkAllNotificationsRead,
+  onSelectTaskFromNotification,
+}: Props) {
   const [debugStatus, setDebugStatus] = useState<DebugStatus | null>(null);
 
   useEffect(() => {
@@ -38,6 +56,12 @@ export default function Header({ tasks, view, onViewChange, onNewAgent }: Props)
             onClick={() => onViewChange("flows")}
           >
             Flows
+          </button>
+          <button
+            className={`header-tab${view === "dashboard" ? " active" : ""}`}
+            onClick={() => onViewChange("dashboard")}
+          >
+            Dashboard
           </button>
           <button
             className={`header-tab${view === "agents" ? " active" : ""}`}
@@ -83,6 +107,13 @@ export default function Header({ tasks, view, onViewChange, onNewAgent }: Props)
             + New Agent
           </button>
         )}
+        <NotificationBell
+          items={notifications}
+          unreadCount={unreadCount}
+          onMarkRead={onMarkNotificationRead}
+          onMarkAllRead={onMarkAllNotificationsRead}
+          onSelectTask={onSelectTaskFromNotification}
+        />
         <button
           className={`btn btn-icon${view === "settings" ? " btn-icon-active" : ""}`}
           onClick={() => onViewChange("settings")}
