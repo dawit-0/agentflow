@@ -132,6 +132,26 @@ async def _init_test_db():
                 created_at TEXT DEFAULT (datetime('now')),
                 answered_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS notifications (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                severity TEXT NOT NULL DEFAULT 'info',
+                title TEXT NOT NULL,
+                body TEXT,
+                task_id TEXT,
+                task_run_id TEXT,
+                flow_id TEXT,
+                read_at TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read_at, created_at);
+            CREATE INDEX IF NOT EXISTS idx_runs_started ON task_runs(started_at);
+            CREATE INDEX IF NOT EXISTS idx_runs_status_started ON task_runs(status, started_at);
+            CREATE INDEX IF NOT EXISTS idx_runs_task_status ON task_runs(task_id, status);
         """)
         await db.commit()
     finally:
@@ -143,8 +163,9 @@ async def _wipe_all_tables():
     db = await _get_test_db()
     try:
         for table in (
-            "task_run_output", "task_xcom", "questions", "task_runs",
-            "task_dependencies", "tasks", "agents", "flows",
+            "task_run_output", "task_xcom", "questions", "notifications",
+            "task_runs", "task_dependencies", "tasks", "agents", "flows",
+            "settings",
         ):
             await db.execute(f"DELETE FROM {table}")
         await db.commit()
@@ -189,6 +210,8 @@ async def client():
         patch("routes.task_runs.get_db", _get_test_db),
         patch("routes.flows.get_db", _get_test_db),
         patch("routes.agents.get_db", _get_test_db),
+        patch("routes.analytics.get_db", _get_test_db),
+        patch("routes.notifications.get_db", _get_test_db),
         patch("orchestrator.get_db", _get_test_db),
     ):
         from main import app

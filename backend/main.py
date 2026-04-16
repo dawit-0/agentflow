@@ -23,6 +23,8 @@ from routes.agents import router as agents_router
 from routes.debug import router as debug_router
 from routes.models import router as models_router
 from routes.settings import router as settings_router
+from routes.analytics import router as analytics_router
+from routes.notifications import router as notifications_router
 
 # Socket.IO
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
@@ -72,6 +74,8 @@ app.include_router(agents_router)
 app.include_router(debug_router)
 app.include_router(models_router)
 app.include_router(settings_router)
+app.include_router(analytics_router)
+app.include_router(notifications_router)
 
 
 @app.middleware("http")

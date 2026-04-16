@@ -73,12 +73,14 @@ async def set_pid(db: aiosqlite.Connection, run_id: str, pid: int) -> None:
 async def set_finished(db: aiosqlite.Connection, run_id: str, status: str,
                          exit_code: Optional[int] = None, duration_ms: int = 0,
                          num_turns: int = 0,
-                         error_message: Optional[str] = None) -> None:
+                         error_message: Optional[str] = None,
+                         cost_usd: float = 0.0) -> None:
     await db.execute(
         """UPDATE task_runs SET status = ?, exit_code = ?, duration_ms = ?,
-           num_turns = ?, finished_at = datetime('now'), error_message = ?
+           num_turns = ?, finished_at = datetime('now'), error_message = ?,
+           cost_usd = ?
            WHERE id = ?""",
-        (status, exit_code, duration_ms, num_turns, error_message, run_id),
+        (status, exit_code, duration_ms, num_turns, error_message, cost_usd, run_id),
     )
 
 

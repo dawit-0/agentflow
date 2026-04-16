@@ -12,6 +12,11 @@ class SettingsUpdate(BaseModel):
     default_work_dir: Optional[str] = None
     max_concurrent_runs: Optional[int] = None
     theme: Optional[str] = None
+    notify_on_task_failure: Optional[bool] = None
+    notify_on_task_success: Optional[bool] = None
+    notify_on_flow_completion: Optional[bool] = None
+    notify_desktop_enabled: Optional[bool] = None
+    notify_sound_enabled: Optional[bool] = None
 
 
 @router.get("")

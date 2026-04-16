@@ -15,6 +15,7 @@ from db import task_run_output as db_output, task_dependencies as db_deps
 from db import task_xcom as db_xcom
 from logging_config import get_logger, task_logger
 from models import DEFAULT_PERMISSIONS
+from notifications import maybe_notify_run_finished, notify_flow_completed
 
 logger = get_logger("orchestrator")
 
@@ -28,6 +29,9 @@ class Orchestrator:
         self.running_providers: dict[str, "BaseProvider"] = {}  # run_id -> provider
         self._poll_task: Optional[asyncio.Task] = None
         self._max_concurrent_runs: int = MAX_CONCURRENT_RUNS
+        # Flow IDs we've already emitted a completion notification for since
+        # their last running task. Cleared when a task in the flow starts.
+        self._flow_complete_notified: set[str] = set()
 
     def update_max_concurrent(self, value: int):
         self._max_concurrent_runs = value
@@ -146,6 +150,13 @@ class Orchestrator:
 
         await db_task_runs.set_running(db, run_id)
         await db.commit()
+
+        # Allow a fresh flow-completion notification next time this flow finishes.
+        task_row = await db_tasks.get_by_id(db, task_id)
+        if task_row:
+            fid = dict(task_row).get("flow_id")
+            if fid:
+                self._flow_complete_notified.discard(fid)
 
         await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "running"})
         await self.sio.emit("task_run:started", {"id": run_id, "task_id": task_id})
@@ -274,11 +285,13 @@ class Orchestrator:
 
             exit_code = getattr(provider, "exit_code", 1)
             stderr_data = getattr(provider, "stderr_data", "")
+            total_cost_usd = getattr(provider, "total_cost_usd", 0.0)
 
             elapsed = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
             status = "success" if exit_code == 0 else "failed"
 
-            tlog.info("finished status=%s exit=%s duration=%dms", status, exit_code, elapsed)
+            tlog.info("finished status=%s exit=%s duration=%dms cost=$%.4f",
+                      status, exit_code, elapsed, total_cost_usd)
             if stderr_data and status == "failed":
                 tlog.warning("stderr: %s", stderr_data[:500])
 
@@ -292,8 +305,10 @@ class Orchestrator:
                                                  exit_code=exit_code,
                                                  duration_ms=elapsed,
                                                  num_turns=seq,
-                                                 error_message=stderr_data or None)
+                                                 error_message=stderr_data or None,
+                                                 cost_usd=total_cost_usd)
 
+                notify_retried = False
                 if status == "success":
                     # Store result as xcom for downstream tasks
                     result_text = await db_output.get_result_text(db, run_id, max_chars=8000)
@@ -302,11 +317,29 @@ class Orchestrator:
                     await self._cascade_trigger_downstream(db, task_id)
                 else:
                     # Check if auto-retry is configured
-                    retried = await self._maybe_auto_retry(db, run_id, task_id)
-                    if not retried:
+                    notify_retried = await self._maybe_auto_retry(db, run_id, task_id)
+                    if not notify_retried:
                         await self._cascade_cancel_downstream(db, task_id)
 
                 await db.commit()
+
+                # Per-task notification (skip if a retry is queued — we'll notify when retries are exhausted)
+                task_row = await db_tasks.get_by_id(db, task_id)
+                if task_row and not (status == "failed" and notify_retried):
+                    try:
+                        await maybe_notify_run_finished(
+                            db, self.sio,
+                            task=dict(task_row),
+                            task_run_id=run_id,
+                            status=status,
+                            error_message=stderr_data or None,
+                        )
+                        await db.commit()
+                    except Exception:
+                        logger.exception("per-run notification failed for run=%s", run_id)
+
+                # Flow-level notification if this was the last task
+                await self._check_flow_completion(db, task_id)
             finally:
                 await db.close()
 
@@ -330,6 +363,23 @@ class Orchestrator:
                 if not retried:
                     await self._cascade_cancel_downstream(db, task_id)
                 await db.commit()
+
+                if not retried:
+                    task_row = await db_tasks.get_by_id(db, task_id)
+                    if task_row:
+                        try:
+                            await maybe_notify_run_finished(
+                                db, self.sio,
+                                task=dict(task_row),
+                                task_run_id=run_id,
+                                status="failed",
+                                error_message=error_msg,
+                            )
+                            await db.commit()
+                        except Exception:
+                            logger.exception("per-run notification failed for run=%s", run_id)
+
+                    await self._check_flow_completion(db, task_id)
             finally:
                 await db.close()
 
@@ -428,6 +478,55 @@ class Orchestrator:
             return {"retried": len(created_runs), "runs": created_runs}
         finally:
             await db.close()
+
+    async def _check_flow_completion(self, db: aiosqlite.Connection, task_id: str) -> None:
+        """If the task's flow has no more active runs, emit a flow completion notification."""
+        task_row = await db_tasks.get_by_id(db, task_id)
+        if not task_row:
+            return
+        flow_id = dict(task_row).get("flow_id")
+        if not flow_id or flow_id in self._flow_complete_notified:
+            return
+
+        active = await db_task_runs.get_active_by_flow(db, flow_id)
+        if active:
+            return
+
+        # Count per-task latest-run statuses to determine overall outcome.
+        cursor = await db.execute(
+            """SELECT tr.status
+               FROM tasks t
+               LEFT JOIN task_runs tr ON tr.id = (
+                   SELECT id FROM task_runs
+                   WHERE task_id = t.id
+                   ORDER BY run_number DESC LIMIT 1
+               )
+               WHERE t.flow_id = ?""",
+            (flow_id,),
+        )
+        statuses = [row[0] for row in await cursor.fetchall()]
+        if not statuses or all(s is None for s in statuses):
+            return  # flow has no runs yet — nothing to notify
+
+        total = len(statuses)
+        failed = sum(1 for s in statuses if s in ("failed", "cancelled"))
+
+        flow = await db_flows.get_by_id(db, flow_id)
+        flow_name = (flow or {}).get("name") or flow_id[:8]
+
+        try:
+            await notify_flow_completed(
+                db, self.sio,
+                flow_id=flow_id,
+                flow_name=flow_name,
+                failed=failed > 0,
+                total_tasks=total,
+                failed_tasks=failed,
+            )
+            await db.commit()
+            self._flow_complete_notified.add(flow_id)
+        except Exception:
+            logger.exception("flow completion notification failed for flow=%s", flow_id)
 
     async def _cascade_trigger_downstream(self, db: aiosqlite.Connection, completed_task_id: str):
         """When a task run succeeds, check downstream tasks and queue runs if all deps are met."""

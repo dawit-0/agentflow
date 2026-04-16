@@ -170,6 +170,73 @@ export interface Settings {
   default_work_dir: string;
   max_concurrent_runs: number;
   theme: "dark" | "light";
+  notify_on_task_failure: boolean;
+  notify_on_task_success: boolean;
+  notify_on_flow_completion: boolean;
+  notify_desktop_enabled: boolean;
+  notify_sound_enabled: boolean;
+}
+
+export interface AnalyticsSummary {
+  since: string;
+  total_runs: number;
+  success_count: number;
+  failed_count: number;
+  cancelled_count: number;
+  success_rate: number;
+  total_cost_usd: number;
+  avg_duration_ms: number;
+  p50_duration_ms: number;
+  p95_duration_ms: number;
+}
+
+export interface DayBucket {
+  date: string;
+  total: number;
+  success: number;
+  failed: number;
+  cost_usd: number;
+}
+
+export interface TopFailingTask {
+  task_id: string;
+  title: string;
+  failure_count: number;
+  last_failure_at: string | null;
+}
+
+export interface DurationBucket {
+  bucket: string;
+  count: number;
+}
+
+export interface RecentFailure {
+  run_id: string;
+  task_id: string;
+  task_title: string;
+  run_number: number;
+  finished_at: string | null;
+  duration_ms: number;
+  error_message: string | null;
+}
+
+export type NotificationKind =
+  | "task_failed"
+  | "task_succeeded"
+  | "flow_completed"
+  | "flow_failed";
+
+export interface AppNotification {
+  id: string;
+  kind: NotificationKind;
+  severity: "info" | "warning" | "error";
+  title: string;
+  body: string | null;
+  task_id: string | null;
+  task_run_id: string | null;
+  flow_id: string | null;
+  read_at: string | null;
+  created_at: string;
 }
 
 export interface DebugStatus {
@@ -389,5 +456,34 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(data),
       }),
+  },
+  analytics: {
+    summary: (since?: string) =>
+      request<AnalyticsSummary>(`/analytics/summary${since ? `?since=${encodeURIComponent(since)}` : ""}`),
+    runsByDay: (since?: string) =>
+      request<DayBucket[]>(`/analytics/runs_by_day${since ? `?since=${encodeURIComponent(since)}` : ""}`),
+    topFailures: (since?: string, limit = 10) => {
+      const qs = new URLSearchParams();
+      if (since) qs.set("since", since);
+      qs.set("limit", String(limit));
+      return request<TopFailingTask[]>(`/analytics/top_failures?${qs}`);
+    },
+    durationHistogram: (since?: string) =>
+      request<DurationBucket[]>(`/analytics/duration_histogram${since ? `?since=${encodeURIComponent(since)}` : ""}`),
+    recentFailures: (limit = 20) =>
+      request<RecentFailure[]>(`/analytics/recent_failures?limit=${limit}`),
+  },
+  notifications: {
+    list: (unreadOnly = false, limit = 50) => {
+      const qs = new URLSearchParams();
+      if (unreadOnly) qs.set("unread_only", "true");
+      qs.set("limit", String(limit));
+      return request<AppNotification[]>(`/notifications?${qs}`);
+    },
+    unreadCount: () => request<{ unread_count: number }>("/notifications/unread_count"),
+    markRead: (id: string) =>
+      request<{ ok: boolean }>(`/notifications/${id}/read`, { method: "POST" }),
+    markAllRead: () =>
+      request<{ ok: boolean; marked: number }>("/notifications/read_all", { method: "POST" }),
   },
 };

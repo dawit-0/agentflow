@@ -29,6 +29,7 @@ class ClaudeProvider(BaseProvider):
     def __init__(self) -> None:
         self.proc: Optional[asyncio.subprocess.Process] = None
         self.pid: Optional[int] = None
+        self.total_cost_usd: float = 0.0
 
     async def execute(
         self,
@@ -88,6 +89,10 @@ class ClaudeProvider(BaseProvider):
                     parsed = json.loads(line)
                     if isinstance(parsed, dict):
                         output_type = parsed.get("type", "text")
+                        if parsed.get("type") == "result":
+                            cost = parsed.get("total_cost_usd")
+                            if isinstance(cost, (int, float)):
+                                self.total_cost_usd = float(cost)
                         if "content" in parsed:
                             content = parsed["content"]
                         elif "result" in parsed:

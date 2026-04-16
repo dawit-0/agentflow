@@ -127,6 +127,24 @@ async def init_db():
                 created_at TEXT DEFAULT (datetime('now')),
                 answered_at TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS notifications (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                severity TEXT NOT NULL DEFAULT 'info',
+                title TEXT NOT NULL,
+                body TEXT,
+                task_id TEXT,
+                task_run_id TEXT,
+                flow_id TEXT,
+                read_at TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read_at, created_at);
+
+            CREATE INDEX IF NOT EXISTS idx_runs_started ON task_runs(started_at);
+            CREATE INDEX IF NOT EXISTS idx_runs_status_started ON task_runs(status, started_at);
+            CREATE INDEX IF NOT EXISTS idx_runs_task_status ON task_runs(task_id, status);
         """)
         await db.commit()
 
