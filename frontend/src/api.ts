@@ -83,7 +83,6 @@ export interface TaskRun {
 }
 
 export interface TaskRunOutput {
-  id: number;
   task_run_id: string;
   seq: number;
   type: string;
