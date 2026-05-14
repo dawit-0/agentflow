@@ -29,8 +29,23 @@ async def get_task_run(run_id: str):
 
 
 @router.get("/{run_id}/output")
-async def get_task_run_output(run_id: str):
-    return await db_output.list_by_run(run_id)
+async def get_task_run_output(
+    run_id: str,
+    after_seq: int | None = None,
+    tail: int | None = None,
+):
+    """Return output entries for a run.
+
+    Without query params, returns the full event list as a JSON array
+    (back-compat with older clients). With ``after_seq`` or ``tail``, returns
+    ``{"rows": [...], "last_seq": <int>}`` so the client can paginate
+    backwards or fetch only new entries during a live tail.
+    """
+    if after_seq is None and tail is None:
+        return await db_output.list_by_run(run_id)
+    return await db_output.list_by_run_paginated(
+        run_id, after_seq=after_seq, tail=tail
+    )
 
 
 @router.get("/{run_id}/xcom")

@@ -1,5 +1,9 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api, Task, TaskRun, TaskRunOutput, UpstreamContextItem } from "../api";
+import { socket } from "../socket";
+
+const INITIAL_TAIL = 200;
+const EARLIER_PAGE = 200;
 
 interface Props {
   taskId: string;
@@ -77,10 +81,18 @@ export default function TaskDetailPage({
   const [runs, setRuns] = useState<TaskRun[]>([]);
   const [selectedRunIdx, setSelectedRunIdx] = useState(0);
   const [output, setOutput] = useState<TaskRunOutput[]>([]);
+  const [hasEarlier, setHasEarlier] = useState(false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [promptExpanded, setPromptExpanded] = useState(false);
   const [deps, setDeps] = useState<{ depends_on: string[] }>({ depends_on: [] });
   const [upstreamContext, setUpstreamContext] = useState<UpstreamContextItem[]>([]);
   const [contextExpanded, setContextExpanded] = useState(false);
+
+  // Ref mirrors of state used inside socket handlers so we don't have to
+  // re-subscribe on every render.
+  const outputRef = useRef<TaskRunOutput[]>([]);
+  outputRef.current = output;
+  const selectedRunIdRef = useRef<string | null>(null);
 
   const loadTask = useCallback(async () => {
     const t = await api.tasks.get(taskId);
@@ -114,22 +126,91 @@ export default function TaskDetailPage({
     loadUpstreamContext();
   }, [loadTask, loadRuns, loadDeps, loadUpstreamContext]);
 
-  // Load output when selected run changes
+  // Load output when selected run changes — fetch the tail, then live-tail
+  // appended entries over socket.io.
   useEffect(() => {
     if (runs.length === 0) {
       setOutput([]);
+      setHasEarlier(false);
+      selectedRunIdRef.current = null;
       return;
     }
+    const run = runs[selectedRunIdx];
+    if (!run) return;
+    selectedRunIdRef.current = run.id;
     let cancelled = false;
-    async function loadOutput() {
-      const run = runs[selectedRunIdx];
-      if (!run) return;
-      const out = await api.taskRuns.output(run.id);
-      if (!cancelled) setOutput(out);
+    setOutput([]);
+    setHasEarlier(false);
+
+    async function loadInitial(runId: string) {
+      const { rows, last_seq } = await api.taskRuns.outputPage(runId, {
+        tail: INITIAL_TAIL,
+      });
+      if (cancelled || selectedRunIdRef.current !== runId) return;
+      setOutput(rows);
+      // Earlier entries exist if the first row we got isn't seq=1 (or earlier
+      // than 1, in case seq is not strictly sequential).
+      const firstSeq = rows[0]?.seq ?? last_seq + 1;
+      setHasEarlier(firstSeq > 1);
     }
-    loadOutput();
-    return () => { cancelled = true; };
+    loadInitial(run.id);
+
+    function onOutputEvent(data: {
+      task_run_id: string;
+      seq: number;
+      type: string;
+      content: string;
+    }) {
+      if (data.task_run_id !== selectedRunIdRef.current) return;
+      const prev = outputRef.current;
+      // Dedupe: ignore if we already have this seq (e.g. raced with the
+      // initial fetch).
+      if (prev.some((r) => r.seq === data.seq)) return;
+      const entry: TaskRunOutput = {
+        task_run_id: data.task_run_id,
+        seq: data.seq,
+        type: data.type,
+        content: data.content,
+        timestamp: new Date().toISOString(),
+      };
+      setOutput([...prev, entry]);
+    }
+
+    socket.on("task_run:output", onOutputEvent);
+    return () => {
+      cancelled = true;
+      socket.off("task_run:output", onOutputEvent);
+    };
   }, [runs, selectedRunIdx]);
+
+  const loadEarlier = useCallback(async () => {
+    const runId = selectedRunIdRef.current;
+    if (!runId) return;
+    const firstSeq = outputRef.current[0]?.seq;
+    if (!firstSeq || firstSeq <= 1) {
+      setHasEarlier(false);
+      return;
+    }
+    setLoadingEarlier(true);
+    try {
+      // Fetch entries with seq > firstSeq - EARLIER_PAGE - 1 (i.e. the
+      // EARLIER_PAGE rows immediately preceding what we currently have).
+      const after = Math.max(0, firstSeq - EARLIER_PAGE - 1);
+      const { rows } = await api.taskRuns.outputPage(runId, {
+        afterSeq: after,
+      });
+      if (selectedRunIdRef.current !== runId) return;
+      const older = rows.filter((r) => r.seq < firstSeq);
+      if (older.length === 0) {
+        setHasEarlier(false);
+        return;
+      }
+      setOutput([...older, ...outputRef.current]);
+      setHasEarlier(older[0].seq > 1);
+    } finally {
+      setLoadingEarlier(false);
+    }
+  }, []);
 
   // Poll for updates
   useEffect(() => {
@@ -407,8 +488,25 @@ export default function TaskDetailPage({
                   {/* Timeline */}
                   {output.length > 0 && (
                     <div className="task-detail-section task-detail-timeline-section">
-                      <div className="task-detail-section-label">Timeline</div>
+                      <div className="task-detail-section-label">
+                        Timeline
+                        {selectedRun.status === "running" && (
+                          <span className="timeline-live-pill" title="Streaming new events as they arrive">
+                            <span className="timeline-live-dot" />
+                            live
+                          </span>
+                        )}
+                      </div>
                       <div className="task-detail-timeline">
+                        {hasEarlier && (
+                          <button
+                            className="btn btn-sm btn-secondary timeline-load-earlier"
+                            onClick={loadEarlier}
+                            disabled={loadingEarlier}
+                          >
+                            {loadingEarlier ? "Loading…" : "Load earlier events"}
+                          </button>
+                        )}
                         {output.map((o) => {
                           if (o.type === "event") {
                             try {

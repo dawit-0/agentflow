@@ -346,6 +346,15 @@ export const api = {
       request<TaskRun[]>(`/task-runs${taskId ? `?task_id=${taskId}` : ""}`),
     get: (id: string) => request<TaskRun>(`/task-runs/${id}`),
     output: (id: string) => request<TaskRunOutput[]>(`/task-runs/${id}/output`),
+    outputPage: (id: string, opts: { afterSeq?: number; tail?: number } = {}) => {
+      const qs = new URLSearchParams();
+      if (opts.afterSeq !== undefined) qs.set("after_seq", String(opts.afterSeq));
+      if (opts.tail !== undefined) qs.set("tail", String(opts.tail));
+      const suffix = qs.toString() ? `?${qs}` : "";
+      return request<{ rows: TaskRunOutput[]; last_seq: number }>(
+        `/task-runs/${id}/output${suffix}`
+      );
+    },
     xcom: (id: string) => request<{ run_id: string; xcom: Array<{ key: string; value: string }> }>(`/task-runs/${id}/xcom`),
   },
   flows: {
