@@ -1,49 +1,30 @@
-import React, { useEffect, useState } from "react";
-import { api, AppNotification, DebugStatus, Task } from "../api";
+import React from "react";
+import { AppNotification } from "../api";
 import NotificationBell from "./NotificationBell";
 
-export type HeaderView = "flows" | "agents" | "settings" | "dashboard";
+export type HeaderView = "flows" | "agents" | "settings" | "dashboard" | "notifications";
 
 interface Props {
-  tasks: Task[];
   view: HeaderView;
   onViewChange: (view: HeaderView) => void;
-  onNewAgent: () => void;
   notifications: AppNotification[];
   unreadCount: number;
   onMarkNotificationRead: (id: string) => void;
   onMarkAllNotificationsRead: () => void;
   onSelectTaskFromNotification?: (taskId: string) => void;
+  onViewAllNotifications: () => void;
 }
 
 export default function Header({
-  tasks,
   view,
   onViewChange,
-  onNewAgent,
   notifications,
   unreadCount,
   onMarkNotificationRead,
   onMarkAllNotificationsRead,
   onSelectTaskFromNotification,
+  onViewAllNotifications,
 }: Props) {
-  const [debugStatus, setDebugStatus] = useState<DebugStatus | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function poll() {
-      try {
-        const s = await api.debug.status();
-        if (!cancelled) setDebugStatus(s);
-      } catch {
-        if (!cancelled) setDebugStatus(null);
-      }
-    }
-    poll();
-    const interval = setInterval(poll, 30000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, []);
-
   return (
     <header className="header">
       <div className="header-left">
@@ -52,16 +33,16 @@ export default function Header({
         </div>
         <div className="header-tabs">
           <button
-            className={`header-tab${view === "flows" ? " active" : ""}`}
-            onClick={() => onViewChange("flows")}
-          >
-            Flows
-          </button>
-          <button
             className={`header-tab${view === "dashboard" ? " active" : ""}`}
             onClick={() => onViewChange("dashboard")}
           >
             Dashboard
+          </button>
+          <button
+            className={`header-tab${view === "flows" ? " active" : ""}`}
+            onClick={() => onViewChange("flows")}
+          >
+            Flows
           </button>
           <button
             className={`header-tab${view === "agents" ? " active" : ""}`}
@@ -71,48 +52,14 @@ export default function Header({
           </button>
         </div>
       </div>
-      <div className="header-stats">
-        <span className="stat-badge">
-          {tasks.length} task{tasks.length !== 1 ? "s" : ""}
-        </span>
-        {tasks.filter((t) => t.schedule).length > 0 && (
-          <span className="stat-badge">
-            <span className="dot scheduled" /> {tasks.filter((t) => t.schedule).length} scheduled
-          </span>
-        )}
-      </div>
-      <div className="header-system-status">
-        {debugStatus ? (
-          <>
-            <span className={`system-status-dot ${debugStatus.orchestrator.running ? "ok" : "down"}`} />
-            <span className="system-status-text">
-              {debugStatus.orchestrator.active_runs} active &middot; {debugStatus.queued_runs} queued
-            </span>
-            {debugStatus.recent_failures.length > 0 && (
-              <span className="system-status-warn">
-                {debugStatus.recent_failures.length} recent failure{debugStatus.recent_failures.length !== 1 ? "s" : ""}
-              </span>
-            )}
-          </>
-        ) : (
-          <>
-            <span className="system-status-dot down" />
-            <span className="system-status-text">Status unavailable</span>
-          </>
-        )}
-      </div>
       <div className="header-actions">
-        {view === "agents" && (
-          <button className="btn btn-primary" onClick={onNewAgent}>
-            + New Agent
-          </button>
-        )}
         <NotificationBell
           items={notifications}
           unreadCount={unreadCount}
           onMarkRead={onMarkNotificationRead}
           onMarkAllRead={onMarkAllNotificationsRead}
           onSelectTask={onSelectTaskFromNotification}
+          onViewAll={onViewAllNotifications}
         />
         <button
           className={`btn btn-icon${view === "settings" ? " btn-icon-active" : ""}`}
