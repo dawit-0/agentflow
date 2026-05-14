@@ -167,7 +167,7 @@ input, textarea, select {
 .header-logo {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
   font-size: 1.125rem;
   font-weight: 700;
   color: var(--text-primary);
