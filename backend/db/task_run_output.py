@@ -54,6 +54,39 @@ def _read_sync(run_id: str) -> list[dict]:
     return rows
 
 
+def _read_filtered_sync(
+    run_id: str,
+    after_seq: int | None,
+    tail: int | None,
+) -> tuple[list[dict], int]:
+    """Read the run's output file, optionally filtering by ``after_seq`` /
+    keeping only the last ``tail`` matching entries. Returns ``(rows,
+    last_seq)`` where ``last_seq`` is the maximum ``seq`` present in the file
+    (0 if the file is empty / missing) — useful for clients deciding whether
+    more entries exist beyond what they've already seen.
+    """
+    path = _file_for(run_id)
+    if not path.exists():
+        return [], 0
+    rows: list[dict] = []
+    last_seq = 0
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            seq = row.get("seq", 0)
+            if isinstance(seq, int) and seq > last_seq:
+                last_seq = seq
+            if after_seq is not None and isinstance(seq, int) and seq <= after_seq:
+                continue
+            rows.append(row)
+    if tail is not None and tail >= 0 and len(rows) > tail:
+        rows = rows[-tail:]
+    return rows, last_seq
+
+
 def _delete_sync(run_id: str) -> None:
     try:
         _file_for(run_id).unlink()
@@ -70,6 +103,28 @@ async def list_by_run(run_id: str) -> list[dict]:
     for row in rows:
         row["task_run_id"] = run_id
     return rows
+
+
+async def list_by_run_paginated(
+    run_id: str,
+    after_seq: int | None = None,
+    tail: int | None = None,
+) -> dict:
+    """Return ``{rows, last_seq}`` for the run's output, optionally filtered.
+
+    - ``after_seq``: only return entries with ``seq`` strictly greater than
+      this value. Used by the client to fetch entries appended since its
+      last poll/tail.
+    - ``tail``: keep only the last ``tail`` entries that pass the filter.
+      Used for the initial load of a long-running run so the UI doesn't have
+      to render the entire history up front.
+    """
+    rows, last_seq = await asyncio.to_thread(
+        _read_filtered_sync, run_id, after_seq, tail
+    )
+    for row in rows:
+        row["task_run_id"] = run_id
+    return {"rows": rows, "last_seq": last_seq}
 
 
 async def get_result_text(run_id: str, max_chars: int = 4000) -> str:
