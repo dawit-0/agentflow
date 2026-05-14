@@ -103,15 +103,6 @@ async def init_db():
                 UNIQUE(task_id, run_number)
             );
 
-            CREATE TABLE IF NOT EXISTS task_run_output (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_run_id TEXT NOT NULL REFERENCES task_runs(id),
-                seq INTEGER NOT NULL,
-                type TEXT DEFAULT 'text',
-                content TEXT NOT NULL,
-                timestamp TEXT DEFAULT (datetime('now'))
-            );
-
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL

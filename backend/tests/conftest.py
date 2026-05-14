@@ -1,5 +1,7 @@
-import sys
 import os
+import shutil
+import sys
+import tempfile
 from unittest.mock import patch
 
 import aiosqlite
@@ -9,6 +11,10 @@ from httpx import ASGITransport, AsyncClient
 
 # Ensure backend is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+# Isolate filesystem-backed task run output to a tmp dir for the test session.
+_TEST_OUTPUT_DIR = tempfile.mkdtemp(prefix="agentflow-test-outputs-")
+os.environ["AGENTFLOW_OUTPUT_DIR"] = _TEST_OUTPUT_DIR
 
 # Shared in-memory DB URI so every get_db() call sees the same data
 _TEST_DB_URI = "file:test_db?mode=memory&cache=shared"
@@ -104,14 +110,6 @@ async def _init_test_db():
                 retry_of_run_id TEXT REFERENCES task_runs(id),
                 UNIQUE(task_id, run_number)
             );
-            CREATE TABLE IF NOT EXISTS task_run_output (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_run_id TEXT NOT NULL REFERENCES task_runs(id),
-                seq INTEGER NOT NULL,
-                type TEXT DEFAULT 'text',
-                content TEXT NOT NULL,
-                timestamp TEXT DEFAULT (datetime('now'))
-            );
             CREATE TABLE IF NOT EXISTS task_xcom (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 task_run_id TEXT NOT NULL REFERENCES task_runs(id),
@@ -163,7 +161,7 @@ async def _wipe_all_tables():
     db = await _get_test_db()
     try:
         for table in (
-            "task_run_output", "task_xcom", "questions", "notifications",
+            "task_xcom", "questions", "notifications",
             "task_runs", "task_dependencies", "tasks", "agents", "flows",
             "settings",
         ):
@@ -171,6 +169,15 @@ async def _wipe_all_tables():
         await db.commit()
     finally:
         await db.close()
+
+
+def _wipe_output_files():
+    """Remove all task-run output files between tests."""
+    for entry in os.scandir(_TEST_OUTPUT_DIR):
+        try:
+            os.remove(entry.path)
+        except FileNotFoundError:
+            pass
 
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
@@ -181,6 +188,7 @@ async def _setup_test_db():
     await _init_test_db()
     yield
     await _keeper_conn.close()
+    shutil.rmtree(_TEST_OUTPUT_DIR, ignore_errors=True)
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -188,6 +196,7 @@ async def _clean_tables():
     """Wipe all data between tests for isolation."""
     yield
     await _wipe_all_tables()
+    _wipe_output_files()
 
 
 @pytest_asyncio.fixture

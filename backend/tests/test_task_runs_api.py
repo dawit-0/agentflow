@@ -1,3 +1,5 @@
+import os
+
 import pytest
 import pytest_asyncio
 
@@ -59,7 +61,7 @@ async def test_get_run_by_id(client):
     assert resp.json()["task_id"] == task["id"]
 
 
-async def test_get_run_output_empty(client, db):
+async def test_get_run_output_empty(client):
     task = await _create_task(client)
     run = await _trigger_task(client, task["id"])
 
@@ -67,8 +69,6 @@ async def test_get_run_output_empty(client, db):
     assert resp.status_code == 200
     assert resp.json() == []
 
-    # Verify no output rows in DB
-    cursor = await db.execute(
-        "SELECT COUNT(*) FROM task_run_output WHERE task_run_id = ?", (run["id"],)
-    )
-    assert (await cursor.fetchone())[0] == 0
+    # No output file should have been created on disk yet.
+    output_path = os.path.join(os.environ["AGENTFLOW_OUTPUT_DIR"], f"{run['id']}.jsonl")
+    assert not os.path.exists(output_path)

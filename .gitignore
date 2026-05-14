@@ -12,6 +12,9 @@ backend/agentflow.db
 backend/agentflow.db-shm
 backend/agentflow.db-wal
 
+# Filesystem-backed task run outputs
+backend/run_outputs/
+
 # Node
 frontend/node_modules/
 frontend/dist/
