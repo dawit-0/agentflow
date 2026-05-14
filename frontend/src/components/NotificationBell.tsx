@@ -8,6 +8,7 @@ interface Props {
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
   onSelectTask?: (taskId: string) => void;
+  onViewAll?: () => void;
 }
 
 export default function NotificationBell({
@@ -16,6 +17,7 @@ export default function NotificationBell({
   onMarkRead,
   onMarkAllRead,
   onSelectTask,
+  onViewAll,
 }: Props) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -63,6 +65,7 @@ export default function NotificationBell({
           onMarkAllRead={onMarkAllRead}
           onSelectTask={onSelectTask}
           onClose={() => setOpen(false)}
+          onViewAll={onViewAll}
         />
       )}
     </div>

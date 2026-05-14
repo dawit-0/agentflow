@@ -8,6 +8,7 @@ interface Props {
   onMarkAllRead: () => void;
   onSelectTask?: (taskId: string) => void;
   onClose: () => void;
+  onViewAll?: () => void;
 }
 
 function timeAgo(iso: string): string {
@@ -31,29 +32,29 @@ export default function NotificationDropdown({
   onMarkAllRead,
   onSelectTask,
   onClose,
+  onViewAll,
 }: Props) {
+  const unread = items.filter((n) => !n.read_at);
   return (
     <div className="notification-dropdown">
       <div className="notification-dropdown-header">
-        <span>Notifications</span>
+        <span>Unread{unreadCount > 0 ? ` (${unreadCount})` : ""}</span>
         {unreadCount > 0 && (
           <button className="btn-link" onClick={onMarkAllRead}>
             Mark all read
           </button>
         )}
       </div>
-      {items.length === 0 ? (
+      {unread.length === 0 ? (
         <div className="notification-empty">You're all caught up.</div>
       ) : (
         <ul className="notification-list">
-          {items.map((n) => (
+          {unread.map((n) => (
             <li
               key={n.id}
-              className={`notification-item notification-${n.severity}${
-                n.read_at ? "" : " unread"
-              }`}
+              className={`notification-item notification-${n.severity} unread`}
               onClick={() => {
-                if (!n.read_at) onMarkRead(n.id);
+                onMarkRead(n.id);
                 if (n.task_id && onSelectTask) {
                   onSelectTask(n.task_id);
                   onClose();
@@ -68,6 +69,19 @@ export default function NotificationDropdown({
             </li>
           ))}
         </ul>
+      )}
+      {onViewAll && (
+        <div className="notification-dropdown-footer">
+          <button
+            className="btn-link"
+            onClick={() => {
+              onViewAll();
+              onClose();
+            }}
+          >
+            See all notifications
+          </button>
+        </div>
       )}
     </div>
   );

@@ -12,6 +12,7 @@ import TaskDetailPage from "./components/TaskDetailPage";
 import NewFlowModal from "./components/NewFlowModal";
 import SettingsPage from "./components/SettingsPage";
 import DashboardPage from "./components/DashboardPage";
+import NotificationsPage from "./components/NotificationsPage";
 import { useNotifications } from "./hooks/useNotifications";
 
 export interface TaskPrefill {
@@ -29,7 +30,7 @@ export default function App() {
   const [flows, setFlows] = useState<Flow[]>([]);
   const [selectedFlow, setSelectedFlow] = useState<string | null>(null);
   const [showTaskForm, setShowTaskForm] = useState(false);
-  const [view, setView] = useState<"flows" | "agents" | "settings" | "dashboard">("flows");
+  const [view, setView] = useState<"flows" | "agents" | "settings" | "dashboard" | "notifications">("dashboard");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [showAgentForm, setShowAgentForm] = useState(false);
@@ -151,15 +152,10 @@ export default function App() {
   return (
     <div className="app">
       <Header
-        tasks={tasks}
         view={view}
         onViewChange={(v) => {
           setView(v);
           if (v === "flows") setSelectedFlow(null);
-        }}
-        onNewAgent={() => {
-          setEditingAgent(null);
-          setShowAgentForm(true);
         }}
         notifications={notifications.items}
         unreadCount={notifications.unreadCount}
@@ -169,6 +165,7 @@ export default function App() {
           setSelectedTaskDetail(taskId);
           setView("flows");
         }}
+        onViewAllNotifications={() => setView("notifications")}
       />
       <div className="main-layout">
         {view === "flows" && selectedFlow && !selectedTaskDetail && (
@@ -214,6 +211,14 @@ export default function App() {
             <SettingsPage onSettingsChanged={setSettings} />
           ) : view === "dashboard" ? (
             <DashboardPage onSelectTask={setSelectedTaskDetail} />
+          ) : view === "notifications" ? (
+            <NotificationsPage
+              onBack={() => setView("dashboard")}
+              onSelectTask={(taskId) => {
+                setSelectedTaskDetail(taskId);
+                setView("flows");
+              }}
+            />
           ) : view === "agents" ? (
             <AgentList
               agents={agents}
