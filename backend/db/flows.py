@@ -10,6 +10,9 @@ _SELECT_WITH_LAST_RUN = """
             WHERE t.flow_id = f.id) AS computed_last_run
     FROM flows f
 """
+# NOTE: flows.last_run_at is only written by the scheduler (see
+# update_schedule_times). Reads derive the true value from task_runs so manual
+# triggers, retries, and resumes are reflected as well.
 
 
 def _project_last_run(row: aiosqlite.Row) -> dict:
