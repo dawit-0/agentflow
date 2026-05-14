@@ -3,17 +3,36 @@ from typing import Optional
 import aiosqlite
 
 
+_SELECT_WITH_LAST_RUN = """
+    SELECT f.*,
+           (SELECT MAX(tr.started_at) FROM task_runs tr
+            JOIN tasks t ON t.id = tr.task_id
+            WHERE t.flow_id = f.id) AS computed_last_run
+    FROM flows f
+"""
+
+
+def _project_last_run(row: aiosqlite.Row) -> dict:
+    d = dict(row)
+    computed = d.pop("computed_last_run", None)
+    if computed:
+        d["last_run_at"] = computed
+    return d
+
+
 async def list_active(db: aiosqlite.Connection) -> list[dict]:
     cursor = await db.execute(
-        "SELECT * FROM flows WHERE archived = 0 ORDER BY created_at DESC"
+        _SELECT_WITH_LAST_RUN + " WHERE f.archived = 0 ORDER BY f.created_at DESC"
     )
-    return [dict(r) for r in await cursor.fetchall()]
+    return [_project_last_run(r) for r in await cursor.fetchall()]
 
 
 async def get_by_id(db: aiosqlite.Connection, flow_id: str) -> Optional[dict]:
-    cursor = await db.execute("SELECT * FROM flows WHERE id = ?", (flow_id,))
+    cursor = await db.execute(
+        _SELECT_WITH_LAST_RUN + " WHERE f.id = ?", (flow_id,)
+    )
     row = await cursor.fetchone()
-    return dict(row) if row else None
+    return _project_last_run(row) if row else None
 
 
 async def insert(db: aiosqlite.Connection, flow_id: str, name: str,

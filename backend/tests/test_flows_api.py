@@ -199,6 +199,31 @@ async def test_create_flow_with_schedule(client):
     assert data["next_run_at"] is not None
 
 
+async def test_last_run_at_reflects_task_runs(client, db):
+    """last_run_at should be derived from task_runs, not just scheduler ticks."""
+    flow = await _create_flow(client, name="Manual Flow")
+
+    # Initially no runs — last_run_at should be null.
+    resp = await client.get(f"/api/flows/{flow['id']}")
+    assert resp.json()["last_run_at"] is None
+
+    # Manually trigger the flow (no schedule involved).
+    await client.post("/api/tasks", json={
+        "title": "Task A",
+        "prompt": "do something",
+        "flow_id": flow["id"],
+    })
+    await client.post(f"/api/flows/{flow['id']}/trigger")
+
+    # Detail and list endpoints should both now report a last_run_at.
+    detail = (await client.get(f"/api/flows/{flow['id']}")).json()
+    assert detail["last_run_at"] is not None
+
+    listed = (await client.get("/api/flows")).json()
+    target = next(f for f in listed if f["id"] == flow["id"])
+    assert target["last_run_at"] is not None
+
+
 async def test_trigger_flow(client, db):
     """Triggering a flow should queue runs for its root tasks."""
     flow = await _create_flow(client)
