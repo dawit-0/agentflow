@@ -93,11 +93,11 @@ function layoutGraph(
       target: e.target,
       animated: isRunning,
       label: passesData ? "data" : undefined,
-      labelStyle: passesData ? { fill: "#6366f1", fontSize: 10, fontWeight: 500 } : undefined,
+      labelStyle: passesData ? { fill: "#14b8a6", fontSize: 10, fontWeight: 500 } : undefined,
       labelBgStyle: passesData ? { fill: "#18181b", fillOpacity: 0.9 } : undefined,
       labelBgPadding: [4, 2] as [number, number],
       style: {
-        stroke: isFailed ? "#ef4444" : isRunning ? "#22c55e" : passesData ? "#6366f1" : "#71717a",
+        stroke: isFailed ? "#ef4444" : isRunning ? "#22c55e" : passesData ? "#14b8a6" : "#71717a",
         strokeWidth: passesData ? 2.5 : 1.5,
         strokeDasharray: passesData ? undefined : "5,5",
       },

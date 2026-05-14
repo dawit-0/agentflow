@@ -30,7 +30,7 @@ export default function Header({ tasks, view, onViewChange, onNewAgent }: Props)
     <header className="header">
       <div className="header-left">
         <div className="header-logo">
-          AGENTFLOW
+          AgentFlow
         </div>
         <div className="header-tabs">
           <button
