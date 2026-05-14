@@ -8,6 +8,22 @@ interface Props {
   onNewFlow: () => void;
 }
 
+function formatRelativeTime(iso: string | null): string {
+  if (!iso) return "Never";
+  const date = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHr = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffSec < 60) return "Just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHr < 24) return `${diffHr}h ago`;
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return date.toLocaleDateString();
+}
+
 export default function FlowDashboard({ flows, tasks, onSelectFlow, onNewFlow }: Props) {
   function getFlowStats(flowId: string) {
     const flowTasks = tasks.filter((t) => t.flow_id === flowId);
@@ -45,51 +61,84 @@ export default function FlowDashboard({ flows, tasks, onSelectFlow, onNewFlow }:
 
   return (
     <div className="flow-dashboard">
-      <div className="flow-dashboard-grid">
-        {flows.map((flow) => {
-          const stats = getFlowStats(flow.id);
-          const status = getFlowStatus(flow.id);
-          return (
-            <div
-              key={flow.id}
-              className={`flow-card flow-card-${status}`}
-              onClick={() => onSelectFlow(flow.id)}
-            >
-              <div className="flow-card-header">
-                <span className={`flow-card-dot flow-card-dot-${status}`} />
-                <h3 className="flow-card-name">{flow.name}</h3>
-              </div>
-              {flow.description && (
-                <p className="flow-card-desc">{flow.description}</p>
-              )}
-              <div className="flow-card-stats">
-                <span className="flow-card-stat">
-                  {stats.total} task{stats.total !== 1 ? "s" : ""}
-                </span>
-                {stats.running > 0 && (
-                  <span className="flow-card-stat flow-card-stat-running">
-                    {stats.running} running
-                  </span>
-                )}
-                {stats.failed > 0 && (
-                  <span className="flow-card-stat flow-card-stat-failed">
-                    {stats.failed} failed
-                  </span>
-                )}
-              </div>
-              <div className="flow-card-footer">
-                {flow.schedule && (
-                  <span className="flow-card-schedule">&#x23f0; {flow.schedule}</span>
-                )}
-                {flow.last_run_at && (
-                  <span className="flow-card-time">
-                    Last run {new Date(flow.last_run_at).toLocaleDateString()}
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
+      <div className="flow-dashboard-header">
+        <div>
+          <h2 className="flow-dashboard-title">Flows</h2>
+          <p className="flow-dashboard-subtitle">
+            {flows.length} flow{flows.length !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <button className="btn btn-primary" onClick={onNewFlow}>
+          + New Flow
+        </button>
+      </div>
+      <div className="flow-table-wrapper">
+        <table className="flow-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Tasks</th>
+              <th>Running</th>
+              <th>Failed</th>
+              <th>Schedule</th>
+              <th>Last Run</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {flows.map((flow) => {
+              const stats = getFlowStats(flow.id);
+              const status = getFlowStatus(flow.id);
+              return (
+                <tr
+                  key={flow.id}
+                  className="flow-table-row"
+                  onClick={() => onSelectFlow(flow.id)}
+                >
+                  <td className="flow-table-name-cell">
+                    <span className={`flow-card-dot flow-card-dot-${status}`} />
+                    <div className="flow-table-name-text">
+                      <div className="flow-table-name">{flow.name}</div>
+                      {flow.description && (
+                        <div className="flow-table-desc">{flow.description}</div>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    <span className={`flow-status-pill flow-status-${status}`}>
+                      {status}
+                    </span>
+                  </td>
+                  <td className="flow-table-num">{stats.total}</td>
+                  <td className="flow-table-num">
+                    {stats.running > 0 ? (
+                      <span className="flow-card-stat-running">{stats.running}</span>
+                    ) : (
+                      <span className="text-muted">0</span>
+                    )}
+                  </td>
+                  <td className="flow-table-num">
+                    {stats.failed > 0 ? (
+                      <span className="flow-card-stat-failed">{stats.failed}</span>
+                    ) : (
+                      <span className="text-muted">0</span>
+                    )}
+                  </td>
+                  <td>
+                    {flow.schedule ? (
+                      <span className="flow-card-schedule">&#x23f0; {flow.schedule}</span>
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
+                  </td>
+                  <td className="flow-table-time">{formatRelativeTime(flow.last_run_at)}</td>
+                  <td className="flow-table-time">{formatRelativeTime(flow.created_at)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );

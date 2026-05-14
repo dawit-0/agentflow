@@ -1349,9 +1349,178 @@ input, textarea, select {
 
 /* ===== Flow Dashboard ===== */
 .flow-dashboard {
-  padding: 24px;
+  padding: 0;
   overflow-y: auto;
   height: 100%;
+}
+
+.flow-dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 24px 16px 24px;
+  gap: 16px;
+}
+
+.flow-dashboard-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.flow-dashboard-subtitle {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin: 4px 0 0 0;
+}
+
+.flow-table-wrapper {
+  padding: 0 24px 24px 24px;
+  overflow-x: auto;
+}
+
+.flow-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  font-size: 0.8125rem;
+}
+
+.flow-table thead {
+  background: var(--bg-tertiary);
+}
+
+.flow-table th {
+  text-align: left;
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.flow-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  vertical-align: middle;
+}
+
+.flow-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.flow-table-row {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.flow-table-row:hover {
+  background: var(--bg-hover);
+}
+
+.flow-table-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 200px;
+}
+
+.flow-table-name-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.flow-table-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.flow-table-desc {
+  font-size: 0.7375rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+}
+
+.flow-table-num {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.flow-table-time {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.flow-status-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.flow-status-running {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--success);
+}
+
+.flow-status-failed {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--danger);
+}
+
+.flow-status-success {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--success);
+}
+
+.flow-status-idle {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+/* ===== Agent List Page ===== */
+.agent-list-page {
+  padding: 0;
+}
+
+.agent-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 16px 0;
+  gap: 16px;
+}
+
+.agent-list-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.agent-list-subtitle {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin: 4px 0 0 0;
 }
 
 .flow-dashboard-grid {

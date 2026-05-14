@@ -171,33 +171,35 @@ export default function App() {
         }}
       />
       <div className="main-layout">
-        <Sidebar
-          flows={flows}
-          selectedFlow={selectedFlow}
-          onSelectFlow={setSelectedFlow}
-          onFlowsChange={loadFlows}
-          tasks={tasks}
-          view={view}
-          agents={agents}
-          onNewTask={() => {
-            setTaskPrefill(null);
-            setShowTaskForm(true);
-          }}
-          onNewAgent={() => {
-            setEditingAgent(null);
-            setShowAgentForm(true);
-          }}
-          onSpawnAgent={handleSpawnFromAgent}
-          onEditAgent={handleEditAgent}
-          onTriggerFlow={async (id) => {
-            await api.flows.trigger(id);
-            loadTasks();
-          }}
-          onRetryFlow={handleRetryFlow}
-          onResumeFlow={handleResumeFlow}
-          onNewFlow={() => setShowNewFlowModal(true)}
-          onQuickTask={handleQuickTask}
-        />
+        {view === "flows" && selectedFlow && !selectedTaskDetail && (
+          <Sidebar
+            flows={flows}
+            selectedFlow={selectedFlow}
+            onSelectFlow={setSelectedFlow}
+            onFlowsChange={loadFlows}
+            tasks={tasks}
+            view={view}
+            agents={agents}
+            onNewTask={() => {
+              setTaskPrefill(null);
+              setShowTaskForm(true);
+            }}
+            onNewAgent={() => {
+              setEditingAgent(null);
+              setShowAgentForm(true);
+            }}
+            onSpawnAgent={handleSpawnFromAgent}
+            onEditAgent={handleEditAgent}
+            onTriggerFlow={async (id) => {
+              await api.flows.trigger(id);
+              loadTasks();
+            }}
+            onRetryFlow={handleRetryFlow}
+            onResumeFlow={handleResumeFlow}
+            onNewFlow={() => setShowNewFlowModal(true)}
+            onQuickTask={handleQuickTask}
+          />
+        )}
         <main className="content">
           {selectedTaskDetail ? (
             <TaskDetailPage
