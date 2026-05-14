@@ -328,7 +328,7 @@ async def get_upstream_context(task_id: str):
             latest_run = await db_task_runs.get_latest_successful(db, upstream_task_id)
             result_text = ""
             if latest_run and pass_output:
-                result_text = await db_output.get_result_text(db, latest_run["id"], max_chars)
+                result_text = await db_output.get_result_text(latest_run["id"], max_chars)
 
             sections.append({
                 "task_id": upstream_task_id,

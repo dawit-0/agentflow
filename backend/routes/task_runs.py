@@ -30,11 +30,7 @@ async def get_task_run(run_id: str):
 
 @router.get("/{run_id}/output")
 async def get_task_run_output(run_id: str):
-    db = await get_db()
-    try:
-        return await db_output.list_by_run(db, run_id)
-    finally:
-        await db.close()
+    return await db_output.list_by_run(run_id)
 
 
 @router.get("/{run_id}/xcom")

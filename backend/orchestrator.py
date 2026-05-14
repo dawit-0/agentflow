@@ -164,10 +164,9 @@ class Orchestrator:
         asyncio.create_task(self._execute_run(run_id, run))
 
     async def _emit_event(self, db, run_id: str, task_id: str, seq: int, event_data: dict):
-        """Insert a lifecycle event into task_run_output and emit via Socket.IO."""
+        """Persist a lifecycle event to the run's output file and broadcast it."""
         content = json.dumps(event_data)
-        await db_output.insert(db, run_id, seq, "event", content)
-        await db.commit()
+        await db_output.insert(run_id, seq, "event", content)
         await self.sio.emit("task_run:output", {
             "task_run_id": run_id,
             "task_id": task_id,
@@ -199,7 +198,7 @@ class Orchestrator:
             upstream_task = await db_tasks.get_by_id(db, upstream_task_id)
             task_title = dict(upstream_task)["title"] if upstream_task else upstream_task_id[:8]
 
-            result_text = await db_output.get_result_text(db, latest_run["id"], max_chars)
+            result_text = await db_output.get_result_text(latest_run["id"], max_chars)
             if result_text.strip():
                 context_sections.append(
                     f"=== Output from upstream task: {task_title} ===\n{result_text}"
@@ -268,12 +267,7 @@ class Orchestrator:
                     finally:
                         await db.close()
 
-                db = await get_db()
-                try:
-                    await db_output.insert(db, run_id, seq, event.type, event.content)
-                    await db.commit()
-                finally:
-                    await db.close()
+                await db_output.insert(run_id, seq, event.type, event.content)
 
                 await self.sio.emit("task_run:output", {
                     "task_run_id": run_id,
@@ -311,7 +305,7 @@ class Orchestrator:
                 notify_retried = False
                 if status == "success":
                     # Store result as xcom for downstream tasks
-                    result_text = await db_output.get_result_text(db, run_id, max_chars=8000)
+                    result_text = await db_output.get_result_text(run_id, max_chars=8000)
                     if result_text.strip():
                         await db_xcom.insert(db, run_id, task_id, "return_value", result_text)
                     await self._cascade_trigger_downstream(db, task_id)
