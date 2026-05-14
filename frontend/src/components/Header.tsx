@@ -29,6 +29,21 @@ export default function Header({
     <header className="header">
       <div className="header-left">
         <div className="header-logo">
+          <svg
+            className="header-logo-mark"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <path d="M3 7 Q 8 3, 12 7 T 21 7" opacity="0.5" />
+            <path d="M3 12 Q 8 8, 12 12 T 21 12" />
+            <path d="M3 17 Q 8 13, 12 17 T 21 17" opacity="0.7" />
+          </svg>
           AgentFlow
         </div>
         <div className="header-tabs">
