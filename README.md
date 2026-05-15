@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/public/agentflow_logo.png" alt="AgentFlow" width="160" />
+  <img src="frontend/public/favicon.svg" alt="AgentFlow" width="160" />
 </p>
 
 <h1 align="center">AgentFlow</h1>
