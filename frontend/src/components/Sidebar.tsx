@@ -258,9 +258,45 @@ export default function Sidebar({
                     <p className="sidebar-flow-desc">{selectedFlowData.description}</p>
                   )}
                   {selectedFlowData.schedule && (
-                    <span className="sidebar-flow-schedule">
-                      &#x23f0; {selectedFlowData.schedule}
-                    </span>
+                    <div className="sidebar-flow-schedule-row">
+                      <span
+                        className={`sidebar-flow-schedule${
+                          selectedFlowData.schedule_enabled ? "" : " sidebar-flow-schedule-off"
+                        }`}
+                      >
+                        &#x23f0; {selectedFlowData.schedule}
+                      </span>
+                      <label
+                        className="flow-toggle-label"
+                        title={
+                          selectedFlowData.schedule_enabled
+                            ? "Scheduled runs are on"
+                            : "Scheduled runs are off"
+                        }
+                      >
+                        <button
+                          type="button"
+                          className={`flow-toggle${selectedFlowData.schedule_enabled ? " on" : ""}`}
+                          onClick={async () => {
+                            await api.flows.update(selectedFlowData.id, {
+                              schedule_enabled: !selectedFlowData.schedule_enabled,
+                            });
+                            onFlowsChange();
+                          }}
+                          aria-pressed={selectedFlowData.schedule_enabled}
+                          aria-label={
+                            selectedFlowData.schedule_enabled
+                              ? "Disable scheduled runs"
+                              : "Enable scheduled runs"
+                          }
+                        >
+                          <span className="flow-toggle-thumb" />
+                        </button>
+                        <span className="flow-toggle-text">
+                          {selectedFlowData.schedule_enabled ? "Schedule on" : "Schedule off"}
+                        </span>
+                      </label>
+                    </div>
                   )}
                 </div>
               </div>

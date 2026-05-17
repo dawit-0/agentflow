@@ -964,6 +964,91 @@ input, textarea, select {
   margin-bottom: 0.5rem;
 }
 
+/* ===== Flow on/off toggle switch ===== */
+.flow-toggle {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: var(--bg-tertiary);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.flow-toggle:hover {
+  background: var(--border-strong);
+}
+
+.flow-toggle.on {
+  background: var(--accent);
+}
+
+.flow-toggle.on:hover {
+  filter: brightness(1.08);
+}
+
+.flow-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.flow-toggle.on .flow-toggle-thumb {
+  transform: translateX(12px);
+}
+
+.flow-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.flow-schedule-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-card-schedule-off {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.sidebar-flow-schedule-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.sidebar-flow-schedule-off {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.flow-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.flow-toggle-text {
+  white-space: nowrap;
+}
+
 /* ===== Sidebar inline input ===== */
 .sidebar-inline-input {
   width: 100%;
