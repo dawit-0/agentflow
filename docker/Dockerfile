@@ -13,7 +13,7 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
-    PATH=/usr/local/bin:/usr/bin:/bin:/home/agent/.local/bin
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/agent/.local/bin
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
