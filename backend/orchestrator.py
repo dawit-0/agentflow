@@ -13,9 +13,11 @@ from database import get_db
 from db import tasks as db_tasks, task_runs as db_task_runs, flows as db_flows
 from db import task_run_output as db_output, task_dependencies as db_deps
 from db import task_xcom as db_xcom
+from db import settings as db_settings
 from logging_config import get_logger, task_logger
 from models import DEFAULT_PERMISSIONS
 from notifications import maybe_notify_run_finished, notify_flow_completed
+from providers.sandbox import SandboxConfig
 
 logger = get_logger("orchestrator")
 
@@ -175,6 +177,26 @@ class Orchestrator:
             "content": content,
         })
 
+    async def _resolve_sandbox(self, db, run: dict) -> SandboxConfig:
+        """Compute the effective sandbox config for a run.
+
+        Precedence: task.sandbox → settings.default_sandbox. Empty string means
+        host execution (no Docker). The returned config carries the
+        deterministic container name we'll use for cancel.
+        """
+        task_sandbox = (run.get("task_sandbox") or "").strip()
+        settings = await db_settings.get_all(db)
+        mode = task_sandbox if task_sandbox else (settings.get("default_sandbox") or "")
+        cfg = SandboxConfig(
+            mode=mode,
+            image=settings.get("sandbox_image") or "agentflow/claude-sandbox:latest",
+            memory=str(settings.get("sandbox_memory") or "4g"),
+            cpus=str(settings.get("sandbox_cpus") or "2"),
+        )
+        if cfg.enabled:
+            cfg.container_name = f"agentflow-{run['id'][:12]}"
+        return cfg
+
     async def _build_prompt_with_context(self, db, task_id: str, base_prompt: str) -> str:
         """Prepend upstream task outputs to the prompt for inter-task data passing."""
         upstream_deps = await db_deps.get_upstream_with_config(db, task_id)
@@ -230,10 +252,17 @@ class Orchestrator:
             permissions = DEFAULT_PERMISSIONS
 
         try:
-            # Build prompt with upstream context (XCom-like data passing)
+            # Build prompt with upstream context (XCom-like data passing).
+            # Resolve effective sandbox config: task-level → global default.
             db = await get_db()
             try:
                 prompt = await self._build_prompt_with_context(db, task_id, base_prompt)
+                sandbox_cfg = await self._resolve_sandbox(db, run)
+                if sandbox_cfg.enabled:
+                    await db_task_runs.set_sandbox(db, run_id,
+                                                    sandbox_cfg.mode,
+                                                    sandbox_cfg.container_name)
+                    await db.commit()
             finally:
                 await db.close()
 
@@ -253,7 +282,11 @@ class Orchestrator:
             # Set PID early if the provider exposes one (after first event)
             pid_set = False
 
-            async for event in provider.execute(prompt, model, work_dir, permissions):
+            # OpenAI provider ignores sandbox (HTTP-only). Pass None so the
+            # `sandbox: docker` event marker only appears for ClaudeProvider.
+            run_sandbox = sandbox_cfg if (sandbox_cfg.enabled and provider_name != "openai") else None
+
+            async for event in provider.execute(prompt, model, work_dir, permissions, sandbox=run_sandbox):
                 seq += 1
 
                 # Track PID for subprocess-based providers

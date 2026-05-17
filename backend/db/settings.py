@@ -11,6 +11,10 @@ DEFAULTS: dict = {
     "notify_on_flow_completion": True,
     "notify_desktop_enabled": True,
     "notify_sound_enabled": False,
+    "default_sandbox": "",  # "" = host execution, "docker" = run in container
+    "sandbox_image": "agentflow/claude-sandbox:latest",
+    "sandbox_memory": "4g",
+    "sandbox_cpus": "2",
 }
 
 

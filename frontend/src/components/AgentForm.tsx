@@ -33,6 +33,9 @@ export default function AgentForm({ flows, agent, onClose, onSaved }: Props) {
   const [showPermDetails, setShowPermDetails] = useState(false);
   const [defaultWorkDir, setDefaultWorkDir] = useState(agent?.default_work_dir || "");
   const [defaultFlowId, setDefaultFlowId] = useState(agent?.default_flow_id || "");
+  const [defaultSandbox, setDefaultSandbox] = useState<"" | "docker">(
+    (agent?.default_sandbox as "" | "docker") || ""
+  );
   const [submitting, setSubmitting] = useState(false);
 
   function addContextItem(type: "file" | "url" | "text") {
@@ -65,6 +68,7 @@ export default function AgentForm({ flows, agent, onClose, onSaved }: Props) {
         default_permissions: permissions,
         default_work_dir: defaultWorkDir.trim(),
         default_flow_id: defaultFlowId || undefined,
+        default_sandbox: defaultSandbox,
       };
       if (agent) {
         await api.agents.update(agent.id, data);
@@ -204,6 +208,17 @@ export default function AgentForm({ flows, agent, onClose, onSaved }: Props) {
                   {f.name}
                 </option>
               ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Default Sandbox</label>
+            <select
+              value={defaultSandbox}
+              onChange={(e) => setDefaultSandbox(e.target.value as "" | "docker")}
+            >
+              <option value="">Inherit global setting</option>
+              <option value="docker">Docker — disposable container</option>
             </select>
           </div>
 

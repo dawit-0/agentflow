@@ -450,6 +450,18 @@ export default function TaskDetailPage({
                           <span>{selectedRun.pid}</span>
                         </div>
                       )}
+                      {selectedRun.sandbox && (
+                        <div className="task-detail-kv">
+                          <span>Sandbox:</span>
+                          <span>{selectedRun.sandbox}</span>
+                        </div>
+                      )}
+                      {selectedRun.container_name && (
+                        <div className="task-detail-kv">
+                          <span>Container:</span>
+                          <span>{selectedRun.container_name}</span>
+                        </div>
+                      )}
                       {selectedRun.exit_code !== null && (
                         <div className="task-detail-kv">
                           <span>Exit code:</span>

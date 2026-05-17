@@ -60,6 +60,7 @@ async def _init_test_db():
                 default_permissions TEXT DEFAULT '{}',
                 default_work_dir TEXT DEFAULT '',
                 default_flow_id TEXT REFERENCES flows(id),
+                default_sandbox TEXT DEFAULT '',
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             );
@@ -80,6 +81,7 @@ async def _init_test_db():
                 last_run_at TEXT,
                 max_retries INTEGER DEFAULT 0,
                 retry_delay_seconds INTEGER DEFAULT 10,
+                sandbox TEXT DEFAULT '',
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             );
@@ -108,6 +110,8 @@ async def _init_test_db():
                 error_message TEXT,
                 attempt_number INTEGER DEFAULT 1,
                 retry_of_run_id TEXT REFERENCES task_runs(id),
+                sandbox TEXT,
+                container_name TEXT,
                 UNIQUE(task_id, run_number)
             );
             CREATE TABLE IF NOT EXISTS task_xcom (

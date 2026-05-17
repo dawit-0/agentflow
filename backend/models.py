@@ -48,6 +48,7 @@ class TaskCreate(BaseModel):
     max_retries: int = 0
     retry_delay_seconds: int = 10
     trigger: bool = False
+    sandbox: Optional[str] = None
 
 
 class TaskUpdate(BaseModel):
@@ -63,6 +64,7 @@ class TaskUpdate(BaseModel):
     schedule_enabled: Optional[bool] = None
     max_retries: Optional[int] = None
     retry_delay_seconds: Optional[int] = None
+    sandbox: Optional[str] = None
 
 
 class TaskTrigger(BaseModel):
@@ -103,6 +105,7 @@ class AgentCreate(BaseModel):
     default_permissions: Optional[dict] = None
     default_work_dir: str = ""
     default_flow_id: Optional[str] = None
+    default_sandbox: Optional[str] = None
 
 
 class AgentUpdate(BaseModel):
@@ -114,6 +117,7 @@ class AgentUpdate(BaseModel):
     default_permissions: Optional[dict] = None
     default_work_dir: Optional[str] = None
     default_flow_id: Optional[str] = None
+    default_sandbox: Optional[str] = None
 
 
 class SpawnTask(BaseModel):
@@ -126,6 +130,7 @@ class SpawnTask(BaseModel):
     permissions: Optional[dict] = None
     depends_on: Optional[list[str]] = None
     trigger: bool = True  # whether to immediately trigger a run
+    sandbox: Optional[str] = None
 
 
 class QuickTaskCreate(BaseModel):
@@ -138,6 +143,7 @@ class QuickTaskCreate(BaseModel):
     max_retries: int = 0
     retry_delay_seconds: int = 10
     trigger: bool = True
+    sandbox: Optional[str] = None
 
 
 class AnswerCreate(BaseModel):

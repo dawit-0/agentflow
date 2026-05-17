@@ -36,6 +36,7 @@ Open **http://localhost:5173**.
 - **Agents** — Reusable templates bundling instructions, attached context (files / URLs / text), and default settings.
 - **Scheduling** — Cron-based triggers on tasks or flows, with common presets (hourly, daily, weekdays, weekly, monthly).
 - **Permissions** — Per-agent tool access: Read Only, Standard, or Full Access (enforced via Claude CLI `--allowedTools`).
+- **Sandbox** — Optional Docker isolation per run: disposable container, bind-mounted work directory, restricted network, resource caps. See [Sandbox mode](#sandbox-mode).
 - **Analytics** — Built-in dashboard for run volume, success rate, cost, and top failing tasks.
 - **Notifications** — In-app alerts for run completion, failures, and schedule events.
 
@@ -60,3 +61,40 @@ Open **http://localhost:5173**.
 
 - `MAX_CONCURRENT_RUNS` — parallel run cap (default `5`), editable from the Settings page or in `backend/orchestrator.py`.
 - `OPENAI_API_KEY` — required to use OpenAI models.
+
+## Sandbox mode
+
+Run agents inside a disposable Docker container so an agent with `bash` or
+`file_write` permissions can't touch the host outside its work directory.
+
+**One-time setup:**
+
+```bash
+bash docker/build.sh        # builds agentflow/claude-sandbox:latest
+```
+
+**Enable:** Settings → Sandbox → set "Default sandbox mode" to **Docker**.
+Individual tasks and agents can override this from their form.
+
+**What gets mounted into the container:**
+
+- The task's `work_dir` — bind-mounted read-write if `file_write` permission
+  is on, read-only otherwise. Same path inside and outside.
+- `~/.claude` from the host, read-only, so the CLI re-uses your login. Anything
+  the agent puts in `~/.ssh`, `~/.aws`, etc. on the host is **not** visible.
+
+**Network policy** (mapped from permissions, no extra knob):
+
+| Permissions                                | Network        |
+|--------------------------------------------|----------------|
+| `web_search` or `mcp` on                   | `host`         |
+| both off                                   | `none`         |
+
+**Resource caps** (overridable from Settings): `--memory 4g`, `--cpus 2`,
+`--pids-limit 512`. Containers run as a non-root `agent` user (uid 1000) and
+are auto-removed on exit (`docker run --rm`).
+
+**Cancel** stops the container with `docker stop --time=5 agentflow-<run_id>`.
+
+**Note:** OpenAI tasks bypass the sandbox — they make HTTP calls only and have
+no local filesystem access to isolate.

@@ -67,6 +67,7 @@ async def create_agent(body: AgentCreate):
             db, agent_id, body.name, body.description, body.instructions,
             json.dumps(body.context), body.default_model,
             json.dumps(permissions), body.default_work_dir, body.default_flow_id,
+            default_sandbox=body.default_sandbox or "",
         )
         await db.commit()
         row = await db_agents.get_by_id(db, agent_id)
@@ -133,6 +134,7 @@ async def spawn_task(agent_id: str, body: SpawnTask):
         permissions = body.permissions if body.permissions else (agent["default_permissions"] or DEFAULT_PERMISSIONS)
         work_dir = body.work_dir if body.work_dir is not None else agent["default_work_dir"]
         flow_id = body.flow_id if body.flow_id is not None else agent["default_flow_id"]
+        sandbox = body.sandbox if body.sandbox is not None else (agent.get("default_sandbox") or "")
 
         # Auto-create a flow if none provided
         if not flow_id:
@@ -144,7 +146,8 @@ async def spawn_task(agent_id: str, body: SpawnTask):
 
         await db_tasks.insert_spawned(db, task_id, body.title, merged_prompt,
                                        model, body.priority, work_dir, flow_id,
-                                       permissions_json, agent_id)
+                                       permissions_json, agent_id,
+                                       sandbox=sandbox)
 
         # Insert dependency rows
         depends_on = list(body.depends_on or [])

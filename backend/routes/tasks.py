@@ -71,7 +71,8 @@ async def quick_create_task(body: QuickTaskCreate):
         await db_tasks.insert_quick(db, task_id, body.title, body.prompt,
                                      body.model, body.work_dir, flow_id,
                                      permissions_json, body.schedule, next_run_at,
-                                     body.max_retries, body.retry_delay_seconds)
+                                     body.max_retries, body.retry_delay_seconds,
+                                     sandbox=body.sandbox or "")
 
         # Trigger immediately if requested
         if body.trigger and not body.schedule:
@@ -150,7 +151,8 @@ async def create_task(body: TaskCreate):
         await db_tasks.insert(db, task_id, body.title, body.prompt, body.model,
                                body.priority, body.work_dir, flow_id, body.agent_id,
                                permissions_json, body.schedule, next_run_at,
-                               body.max_retries, body.retry_delay_seconds)
+                               body.max_retries, body.retry_delay_seconds,
+                               sandbox=body.sandbox or "")
 
         for dep_id in depends_on:
             if dep_id != task_id:
