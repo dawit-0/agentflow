@@ -1,11 +1,12 @@
 import React from "react";
-import { Flow, Task } from "../api";
+import { Flow, Task, api } from "../api";
 
 interface Props {
   flows: Flow[];
   tasks: Task[];
   onSelectFlow: (id: string) => void;
   onNewFlow: () => void;
+  onFlowsChange: () => void;
 }
 
 function formatRelativeTime(iso: string | null): string {
@@ -24,7 +25,13 @@ function formatRelativeTime(iso: string | null): string {
   return date.toLocaleDateString();
 }
 
-export default function FlowDashboard({ flows, tasks, onSelectFlow, onNewFlow }: Props) {
+export default function FlowDashboard({ flows, tasks, onSelectFlow, onNewFlow, onFlowsChange }: Props) {
+  async function toggleScheduleEnabled(e: React.MouseEvent, flow: Flow) {
+    e.stopPropagation();
+    await api.flows.update(flow.id, { schedule_enabled: !flow.schedule_enabled });
+    onFlowsChange();
+  }
+
   function getFlowStats(flowId: string) {
     const flowTasks = tasks.filter((t) => t.flow_id === flowId);
     const running = flowTasks.filter((t) => t.latest_run?.status === "running").length;
@@ -127,7 +134,23 @@ export default function FlowDashboard({ flows, tasks, onSelectFlow, onNewFlow }:
                   </td>
                   <td>
                     {flow.schedule ? (
-                      <span className="flow-card-schedule">&#x23f0; {flow.schedule}</span>
+                      <div className="flow-schedule-cell">
+                        <button
+                          type="button"
+                          className={`flow-toggle${flow.schedule_enabled ? " on" : ""}`}
+                          onClick={(e) => toggleScheduleEnabled(e, flow)}
+                          title={flow.schedule_enabled ? "Disable scheduled runs" : "Enable scheduled runs"}
+                          aria-label={flow.schedule_enabled ? "Disable scheduled runs" : "Enable scheduled runs"}
+                          aria-pressed={flow.schedule_enabled}
+                        >
+                          <span className="flow-toggle-thumb" />
+                        </button>
+                        <span
+                          className={`flow-card-schedule${flow.schedule_enabled ? "" : " flow-card-schedule-off"}`}
+                        >
+                          &#x23f0; {flow.schedule}
+                        </span>
+                      </div>
                     ) : (
                       <span className="text-muted">—</span>
                     )}

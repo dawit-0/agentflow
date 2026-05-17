@@ -247,6 +247,7 @@ export default function App() {
               tasks={tasks}
               onSelectFlow={setSelectedFlow}
               onNewFlow={() => setShowNewFlowModal(true)}
+              onFlowsChange={loadFlows}
             />
           )}
         </main>
