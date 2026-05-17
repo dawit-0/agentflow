@@ -70,6 +70,14 @@ async def set_pid(db: aiosqlite.Connection, run_id: str, pid: int) -> None:
     )
 
 
+async def set_sandbox(db: aiosqlite.Connection, run_id: str,
+                      sandbox: str, container_name: Optional[str]) -> None:
+    await db.execute(
+        "UPDATE task_runs SET sandbox = ?, container_name = ? WHERE id = ?",
+        (sandbox, container_name, run_id),
+    )
+
+
 async def set_finished(db: aiosqlite.Connection, run_id: str, status: str,
                          exit_code: Optional[int] = None, duration_ms: int = 0,
                          num_turns: int = 0,
@@ -141,7 +149,7 @@ async def get_attempt_number(db: aiosqlite.Connection, run_id: str) -> Optional[
 async def get_queued_ready(db: aiosqlite.Connection, limit: int) -> list[dict]:
     """Get queued runs whose task is active and all upstream deps are met."""
     cursor = await db.execute(
-        """SELECT tr.*, t.prompt, t.model, t.work_dir, t.permissions, t.priority
+        """SELECT tr.*, t.prompt, t.model, t.work_dir, t.permissions, t.priority, t.sandbox AS task_sandbox
            FROM task_runs tr
            JOIN tasks t ON t.id = tr.task_id
            WHERE tr.status = 'queued' AND t.status = 'active'

@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import AsyncIterator, Optional
 
+from .sandbox import SandboxConfig
+
 
 @dataclass
 class ProviderEvent:
@@ -24,6 +26,7 @@ class BaseProvider(ABC):
     """Interface that every execution provider must implement."""
 
     pid: Optional[int] = None  # Only set for subprocess-based providers
+    container_name: Optional[str] = None  # Only set when running in a Docker sandbox
     total_cost_usd: float = 0.0  # Captured from the provider's final result event
 
     @abstractmethod
@@ -33,6 +36,7 @@ class BaseProvider(ABC):
         model: str,
         work_dir: str,
         permissions: dict,
+        sandbox: Optional[SandboxConfig] = None,
     ) -> AsyncIterator[ProviderEvent]:
         """Yield streaming events. The orchestrator consumes these uniformly."""
         ...  # pragma: no cover

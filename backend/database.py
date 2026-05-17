@@ -147,5 +147,17 @@ async def init_db():
             except Exception:
                 pass  # column already exists
 
+        for table, col, ddl in [
+            ("tasks", "sandbox", "ALTER TABLE tasks ADD COLUMN sandbox TEXT DEFAULT ''"),
+            ("agents", "default_sandbox", "ALTER TABLE agents ADD COLUMN default_sandbox TEXT DEFAULT ''"),
+            ("task_runs", "sandbox", "ALTER TABLE task_runs ADD COLUMN sandbox TEXT"),
+            ("task_runs", "container_name", "ALTER TABLE task_runs ADD COLUMN container_name TEXT"),
+        ]:
+            try:
+                await db.execute(ddl)
+                await db.commit()
+            except Exception:
+                pass  # column already exists
+
     finally:
         await db.close()

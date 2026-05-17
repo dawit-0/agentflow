@@ -13,12 +13,14 @@ export default function SettingsPage({ onSettingsChanged }: Props = {}) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
   const [workDirDraft, setWorkDirDraft] = useState("");
+  const [imageDraft, setImageDraft] = useState("");
   const [permission, setPermission] = useState<string>(desktopPermission());
 
   useEffect(() => {
     api.settings.get().then((s) => {
       setSettings(s);
       setWorkDirDraft(s.default_work_dir);
+      setImageDraft(s.sandbox_image);
     });
   }, []);
 
@@ -168,6 +170,66 @@ export default function SettingsPage({ onSettingsChanged }: Props = {}) {
                   className="settings-slider"
                 />
                 <span className="settings-slider-value">{settings.max_concurrent_runs}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Sandbox */}
+          <div className="settings-section">
+            <div className="settings-section-header">
+              <h3>Sandbox</h3>
+            </div>
+            <div className="settings-field">
+              <label className="settings-label">Default sandbox mode</label>
+              <p className="settings-description">
+                Run agents inside a Docker container by default. Each run gets its own
+                disposable container with the work directory bind-mounted. Tasks can
+                override this. Requires Docker on the host and a built sandbox image
+                (see <code>docker/</code>).
+              </p>
+              <div className="settings-toggle-group">
+                <button
+                  className={`settings-toggle-btn ${settings.default_sandbox === "" ? "active" : ""}`}
+                  onClick={() => updateSetting({ default_sandbox: "" })}
+                  disabled={saving === "default_sandbox"}
+                >
+                  None (host)
+                </button>
+                <button
+                  className={`settings-toggle-btn ${settings.default_sandbox === "docker" ? "active" : ""}`}
+                  onClick={() => updateSetting({ default_sandbox: "docker" })}
+                  disabled={saving === "default_sandbox"}
+                >
+                  Docker
+                </button>
+              </div>
+            </div>
+            <div className="settings-field">
+              <label className="settings-label">Sandbox image</label>
+              <p className="settings-description">
+                Docker image used when sandbox mode is "docker". Build the default with
+                <code> bash docker/build.sh</code>.
+              </p>
+              <div className="settings-input-row">
+                <input
+                  type="text"
+                  className="settings-input"
+                  value={imageDraft}
+                  onChange={(e) => setImageDraft(e.target.value)}
+                  placeholder="agentflow/claude-sandbox:latest"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      updateSetting({ sandbox_image: imageDraft });
+                    }
+                  }}
+                />
+                <button
+                  className="settings-save-btn"
+                  onClick={() => updateSetting({ sandbox_image: imageDraft })}
+                  disabled={saving === "sandbox_image" || imageDraft === settings.sandbox_image}
+                >
+                  {saving === "sandbox_image" ? "Saving..." : "Save"}
+                </button>
               </div>
             </div>
           </div>

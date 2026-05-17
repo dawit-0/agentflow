@@ -60,6 +60,9 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
   const [maxRetries, setMaxRetries] = useState(0);
   const [retryDelay, setRetryDelay] = useState(10);
 
+  // Sandbox: "inherit" (use settings default), "" (force host), or "docker"
+  const [sandbox, setSandbox] = useState<"inherit" | "" | "docker">("inherit");
+
   // Whether to trigger immediately
   const [triggerNow, setTriggerNow] = useState(true);
 
@@ -90,6 +93,8 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
         finalFlowId = newFlow.id;
       }
 
+      const sandboxValue = sandbox === "inherit" ? undefined : sandbox;
+
       if (isSpawn && prefill?.agentId) {
         await api.agents.spawn(prefill.agentId, {
           title: title.trim(),
@@ -100,6 +105,7 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
           permissions,
           depends_on: dependsOn.length > 0 ? dependsOn : undefined,
           trigger: triggerNow,
+          sandbox: sandboxValue,
         });
       } else {
         const task = await api.tasks.create({
@@ -115,6 +121,7 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
           max_output_chars: dependsOn.length > 0 && passOutput ? maxOutputChars : undefined,
           max_retries: maxRetries > 0 ? maxRetries : undefined,
           retry_delay_seconds: maxRetries > 0 ? retryDelay : undefined,
+          sandbox: sandboxValue,
         } as Parameters<typeof api.tasks.create>[0]);
 
         // Trigger immediately if requested and no schedule
@@ -412,6 +419,25 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
                 ))}
               </div>
             )}
+          </div>
+
+          <div className="form-group">
+            <label>Sandbox</label>
+            <select
+              value={sandbox}
+              onChange={(e) => setSandbox(e.target.value as "inherit" | "" | "docker")}
+            >
+              <option value="inherit">Use default (from Settings)</option>
+              <option value="">None — run on host</option>
+              <option value="docker">Docker — disposable container</option>
+            </select>
+            <p className="field-hint">
+              {sandbox === "docker"
+                ? "This run will execute inside a Docker container with the work directory bind-mounted."
+                : sandbox === ""
+                ? "This run will execute as a host subprocess."
+                : "Inherits the global Sandbox setting."}
+            </p>
           </div>
 
           <div className="form-actions">

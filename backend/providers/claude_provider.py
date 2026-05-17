@@ -5,6 +5,7 @@ import json
 from typing import AsyncIterator, Optional
 
 from .base import BaseProvider, ProviderEvent
+from .sandbox import SandboxConfig, docker_run_prefix
 
 
 def _build_allowed_tools(permissions: dict) -> list[str]:
@@ -23,12 +24,32 @@ def _build_allowed_tools(permissions: dict) -> list[str]:
     return tools
 
 
+def _build_claude_cmd(model: str, permissions: dict) -> list[str]:
+    """The inner ``claude …`` invocation. Same args work host- and container-side."""
+    cmd = [
+        "claude",
+        "--print",
+        "--output-format", "stream-json",
+        "--verbose",
+        "--model", model,
+    ]
+    for tool in _build_allowed_tools(permissions):
+        cmd.extend(["--allowedTools", tool])
+    return cmd
+
+
 class ClaudeProvider(BaseProvider):
-    """Execute a prompt via the ``claude`` CLI subprocess."""
+    """Execute a prompt via the ``claude`` CLI subprocess.
+
+    When ``sandbox.enabled`` is True, the subprocess is ``docker run`` wrapping
+    the same ``claude`` command. The streaming JSON protocol on stdout is
+    identical in both modes.
+    """
 
     def __init__(self) -> None:
         self.proc: Optional[asyncio.subprocess.Process] = None
         self.pid: Optional[int] = None
+        self.container_name: Optional[str] = None
         self.total_cost_usd: float = 0.0
 
     async def execute(
@@ -37,26 +58,31 @@ class ClaudeProvider(BaseProvider):
         model: str,
         work_dir: str,
         permissions: dict,
+        sandbox: Optional[SandboxConfig] = None,
     ) -> AsyncIterator[ProviderEvent]:
-        cmd = [
-            "claude",
-            "--print",
-            "--output-format", "stream-json",
-            "--verbose",
-            "--model", model,
-        ]
+        claude_cmd = _build_claude_cmd(model, permissions)
+        spawn_cwd: Optional[str] = None
+        sandbox_event_extra: dict = {}
 
-        allowed_tools = _build_allowed_tools(permissions)
-        if allowed_tools:
-            for tool in allowed_tools:
-                cmd.extend(["--allowedTools", tool])
+        if sandbox and sandbox.enabled:
+            container_name = sandbox.container_name or "agentflow-run"
+            self.container_name = container_name
+            cmd = docker_run_prefix(sandbox, work_dir, permissions, container_name) + claude_cmd
+            sandbox_event_extra = {
+                "sandbox": "docker",
+                "image": sandbox.image,
+                "container_name": container_name,
+            }
+        else:
+            cmd = claude_cmd
+            spawn_cwd = work_dir or None
 
         self.proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=work_dir,
+            cwd=spawn_cwd,
         )
         # Feed prompt via stdin so special characters / quoting are never an issue
         self.proc.stdin.write(prompt.encode("utf-8"))
@@ -65,7 +91,11 @@ class ClaudeProvider(BaseProvider):
 
         yield ProviderEvent(
             type="event",
-            content=json.dumps({"event": "subprocess_started", "pid": self.proc.pid}),
+            content=json.dumps({
+                "event": "subprocess_started",
+                "pid": self.proc.pid,
+                **sandbox_event_extra,
+            }),
         )
 
         # Stream stdout line-by-line
@@ -125,6 +155,19 @@ class ClaudeProvider(BaseProvider):
         self.stderr_data = stderr_data
 
     async def cancel(self) -> None:
+        # When sandboxed, the host process is the `docker` client. Stopping the
+        # container kills the workload; the docker client exits in turn.
+        if self.container_name:
+            try:
+                stop = await asyncio.create_subprocess_exec(
+                    "docker", "stop", "--time=5", self.container_name,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await stop.wait()
+            except Exception:
+                pass
+
         if self.proc:
             try:
                 self.proc.terminate()

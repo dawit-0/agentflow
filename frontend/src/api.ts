@@ -59,6 +59,7 @@ export interface Task {
   schedule_enabled: boolean;
   next_run_at: string | null;
   last_run_at: string | null;
+  sandbox: string;
   created_at: string;
   updated_at: string;
   latest_run?: TaskRun | null;
@@ -80,6 +81,8 @@ export interface TaskRun {
   error_message: string | null;
   attempt_number: number;
   retry_of_run_id: string | null;
+  sandbox: string | null;
+  container_name: string | null;
 }
 
 export interface TaskRunOutput {
@@ -155,6 +158,7 @@ export interface Agent {
   default_permissions: Permissions;
   default_work_dir: string;
   default_flow_id: string | null;
+  default_sandbox: string;
   created_at: string;
   updated_at: string;
 }
@@ -174,6 +178,10 @@ export interface Settings {
   notify_on_flow_completion: boolean;
   notify_desktop_enabled: boolean;
   notify_sound_enabled: boolean;
+  default_sandbox: "" | "docker";
+  sandbox_image: string;
+  sandbox_memory: string;
+  sandbox_cpus: string;
 }
 
 export interface AnalyticsSummary {
@@ -280,6 +288,7 @@ export const api = {
       max_output_chars?: number;
       max_retries?: number;
       retry_delay_seconds?: number;
+      sandbox?: string;
     }) => request<Task>("/tasks", { method: "POST", body: JSON.stringify(data) }),
     update: (
       id: string,
@@ -294,6 +303,7 @@ export const api = {
         permissions: Permissions;
         schedule: string;
         schedule_enabled: boolean;
+        sandbox: string;
       }>
     ) =>
       request<Task>(`/tasks/${id}`, {
@@ -339,6 +349,7 @@ export const api = {
       max_retries?: number;
       retry_delay_seconds?: number;
       trigger?: boolean;
+      sandbox?: string;
     }) => request<Task>("/tasks/quick", { method: "POST", body: JSON.stringify(data) }),
   },
   taskRuns: {
@@ -414,6 +425,7 @@ export const api = {
       default_permissions?: Permissions;
       default_work_dir?: string;
       default_flow_id?: string;
+      default_sandbox?: string;
     }) =>
       request<Agent>("/agents", {
         method: "POST",
@@ -430,6 +442,7 @@ export const api = {
         default_permissions: Permissions;
         default_work_dir: string;
         default_flow_id: string;
+        default_sandbox: string;
       }>
     ) =>
       request<Agent>(`/agents/${id}`, {
@@ -450,6 +463,7 @@ export const api = {
         permissions?: Permissions;
         depends_on?: string[];
         trigger?: boolean;
+        sandbox?: string;
       }
     ) =>
       request<Task>(`/agents/${id}/spawn`, {

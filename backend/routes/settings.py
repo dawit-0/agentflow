@@ -17,6 +17,10 @@ class SettingsUpdate(BaseModel):
     notify_on_flow_completion: Optional[bool] = None
     notify_desktop_enabled: Optional[bool] = None
     notify_sound_enabled: Optional[bool] = None
+    default_sandbox: Optional[str] = None
+    sandbox_image: Optional[str] = None
+    sandbox_memory: Optional[str] = None
+    sandbox_cpus: Optional[str] = None
 
 
 @router.get("")
@@ -46,6 +50,12 @@ async def update_settings(body: SettingsUpdate):
         if data["theme"] not in ("dark", "light"):
             from fastapi import HTTPException
             raise HTTPException(400, "theme must be 'dark' or 'light'")
+
+    # Validate default_sandbox
+    if "default_sandbox" in data:
+        if data["default_sandbox"] not in ("", "docker"):
+            from fastapi import HTTPException
+            raise HTTPException(400, "default_sandbox must be '' or 'docker'")
 
     db = await get_db()
     try:
