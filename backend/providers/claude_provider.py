@@ -2,10 +2,11 @@
 
 import asyncio
 import json
+import shutil
 from typing import AsyncIterator, Optional
 
 from .base import BaseProvider, ProviderEvent
-from .sandbox import SandboxConfig, docker_run_prefix
+from .sandbox import SandboxConfig, docker_run_prefix, prepare_auth_dir
 
 
 def _build_allowed_tools(permissions: dict) -> list[str]:
@@ -51,6 +52,7 @@ class ClaudeProvider(BaseProvider):
         self.pid: Optional[int] = None
         self.container_name: Optional[str] = None
         self.total_cost_usd: float = 0.0
+        self._auth_dir: Optional[str] = None
 
     async def execute(
         self,
@@ -67,7 +69,11 @@ class ClaudeProvider(BaseProvider):
         if sandbox and sandbox.enabled:
             container_name = sandbox.container_name or "agentflow-run"
             self.container_name = container_name
-            cmd = docker_run_prefix(sandbox, work_dir, permissions, container_name) + claude_cmd
+            self._auth_dir = prepare_auth_dir()
+            cmd = docker_run_prefix(
+                sandbox, work_dir, permissions, container_name,
+                auth_dir=self._auth_dir,
+            ) + claude_cmd
             sandbox_event_extra = {
                 "sandbox": "docker",
                 "image": sandbox.image,
@@ -77,13 +83,17 @@ class ClaudeProvider(BaseProvider):
             cmd = claude_cmd
             spawn_cwd = work_dir or None
 
-        self.proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=spawn_cwd,
-        )
+        try:
+            self.proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=spawn_cwd,
+            )
+        except Exception:
+            self._cleanup_auth_dir()
+            raise
         # Feed prompt via stdin so special characters / quoting are never an issue
         self.proc.stdin.write(prompt.encode("utf-8"))
         self.proc.stdin.close()
@@ -154,6 +164,13 @@ class ClaudeProvider(BaseProvider):
         self.exit_code = exit_code
         self.stderr_data = stderr_data
 
+        self._cleanup_auth_dir()
+
+    def _cleanup_auth_dir(self) -> None:
+        if self._auth_dir:
+            shutil.rmtree(self._auth_dir, ignore_errors=True)
+            self._auth_dir = None
+
     async def cancel(self) -> None:
         # When sandboxed, the host process is the `docker` client. Stopping the
         # container kills the workload; the docker client exits in turn.
@@ -173,3 +190,5 @@ class ClaudeProvider(BaseProvider):
                 self.proc.terminate()
             except ProcessLookupError:
                 pass
+
+        self._cleanup_auth_dir()
