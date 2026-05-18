@@ -1,6 +1,9 @@
 """Unit tests for the Docker sandbox command builder."""
 
-from providers.sandbox import SandboxConfig, docker_run_prefix
+import json
+import os
+
+from providers.sandbox import SandboxConfig, docker_run_prefix, prepare_auth_dir
 
 
 def _cfg(**kw) -> SandboxConfig:
@@ -20,14 +23,16 @@ def test_enabled_only_when_mode_is_docker():
     assert SandboxConfig(mode="").enabled is False
 
 
-def test_restricted_permissions_use_no_network_and_ro_mount():
+def test_restricted_permissions_use_bridge_network_and_ro_mount():
     cmd = docker_run_prefix(
         _cfg(),
         "/tmp/work",
         {"file_read": True, "file_write": False, "bash": False, "web_search": False, "mcp": False},
         "agentflow-test",
     )
-    assert cmd[cmd.index("--network") + 1] == "none"
+    # The Claude CLI must reach api.anthropic.com, so the default is bridge,
+    # never `none`.
+    assert cmd[cmd.index("--network") + 1] == "bridge"
     assert "/tmp/work:/tmp/work:ro" in cmd
     assert "-w" in cmd
     assert cmd[cmd.index("-w") + 1] == "/tmp/work"
@@ -41,8 +46,8 @@ def test_file_write_uses_rw_mount():
         "agentflow-test",
     )
     assert "/home/me/repo:/home/me/repo:rw" in cmd
-    # Still no network — neither web_search nor mcp
-    assert cmd[cmd.index("--network") + 1] == "none"
+    # bridge by default — neither web_search nor mcp asked for host network
+    assert cmd[cmd.index("--network") + 1] == "bridge"
 
 
 def test_web_search_enables_host_network():
@@ -82,3 +87,33 @@ def test_resource_caps_and_container_name_present():
     assert cmd[cmd.index("--name") + 1] == "agentflow-xyz"
     # Image is the final positional arg before the inner command (caller appends claude_cmd)
     assert cmd[-1] == "agentflow/test:latest"
+
+
+def test_auth_dir_mounts_credentials_rw(tmp_path):
+    auth_dir = str(tmp_path / "auth")
+    os.makedirs(os.path.join(auth_dir, "claude_home"))
+    with open(os.path.join(auth_dir, ".claude.json"), "w") as f:
+        f.write("{}")
+
+    cmd = docker_run_prefix(_cfg(), "/w", {"file_read": True}, "agentflow-test", auth_dir=auth_dir)
+
+    # Credentials dir is mounted rw (no :ro suffix) so the CLI can write
+    # session/project state without silently failing.
+    assert f"{auth_dir}/claude_home:/home/agent/.claude" in cmd
+    assert f"{auth_dir}/.claude.json:/home/agent/.claude.json" in cmd
+
+
+def test_prepare_auth_dir_writes_required_files(tmp_path, monkeypatch):
+    # Point HOME at a temp dir so we don't depend on the developer's real home
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    auth_dir = prepare_auth_dir()
+    try:
+        assert os.path.isdir(os.path.join(auth_dir, "claude_home"))
+        # .claude.json stub written even when host has no config
+        with open(os.path.join(auth_dir, ".claude.json")) as f:
+            assert json.loads(f.read()) == {}
+    finally:
+        import shutil
+        shutil.rmtree(auth_dir, ignore_errors=True)
