@@ -59,6 +59,7 @@ async def init_db():
                 last_run_at TEXT,
                 max_retries INTEGER DEFAULT 0,
                 retry_delay_seconds INTEGER DEFAULT 10,
+                requires_approval INTEGER DEFAULT 0,
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             );
@@ -100,6 +101,10 @@ async def init_db():
                 error_message TEXT,
                 attempt_number INTEGER DEFAULT 1,
                 retry_of_run_id TEXT REFERENCES task_runs(id),
+                approval_status TEXT CHECK(approval_status IN ('pending','approved','rejected') OR approval_status IS NULL),
+                approval_note TEXT,
+                approval_decided_at TEXT,
+                approval_notified INTEGER DEFAULT 0,
                 UNIQUE(task_id, run_number)
             );
 
@@ -152,6 +157,11 @@ async def init_db():
             ("agents", "default_sandbox", "ALTER TABLE agents ADD COLUMN default_sandbox TEXT DEFAULT ''"),
             ("task_runs", "sandbox", "ALTER TABLE task_runs ADD COLUMN sandbox TEXT"),
             ("task_runs", "container_name", "ALTER TABLE task_runs ADD COLUMN container_name TEXT"),
+            ("tasks", "requires_approval", "ALTER TABLE tasks ADD COLUMN requires_approval INTEGER DEFAULT 0"),
+            ("task_runs", "approval_status", "ALTER TABLE task_runs ADD COLUMN approval_status TEXT"),
+            ("task_runs", "approval_note", "ALTER TABLE task_runs ADD COLUMN approval_note TEXT"),
+            ("task_runs", "approval_decided_at", "ALTER TABLE task_runs ADD COLUMN approval_decided_at TEXT"),
+            ("task_runs", "approval_notified", "ALTER TABLE task_runs ADD COLUMN approval_notified INTEGER DEFAULT 0"),
         ]:
             try:
                 await db.execute(ddl)

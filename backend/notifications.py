@@ -65,6 +65,35 @@ async def maybe_notify_run_finished(
     return record
 
 
+async def notify_approval_needed(
+    db: aiosqlite.Connection,
+    sio,
+    *,
+    task: dict,
+    task_run_id: str,
+) -> Optional[dict]:
+    """Create a notification when a run is held pending approval.
+
+    Unlike the other notifiers, this always fires — a blocked run is
+    actionable by definition, so it isn't gated behind a settings toggle.
+    """
+    task_title = task.get("title") or task.get("id", "")[:8]
+
+    record = await db_notifications.insert(
+        db,
+        kind="approval_needed",
+        severity="warning",
+        title=f"Approval needed: {task_title}",
+        body="This task is waiting for approval before it can run.",
+        task_id=task.get("id"),
+        task_run_id=task_run_id,
+        flow_id=task.get("flow_id"),
+    )
+    count = await db_notifications.unread_count(db)
+    await _emit_new(sio, record, count)
+    return record
+
+
 async def notify_flow_completed(
     db: aiosqlite.Connection,
     sio,

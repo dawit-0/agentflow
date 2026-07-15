@@ -108,6 +108,16 @@ export default function App() {
     loadTasks();
   }
 
+  async function handleApproveRun(runId: string) {
+    await api.taskRuns.approve(runId);
+    loadTasks();
+  }
+
+  async function handleRejectRun(runId: string) {
+    await api.taskRuns.reject(runId);
+    loadTasks();
+  }
+
   async function handleRetryFlow(id: string) {
     await api.flows.retry(id);
     loadTasks();
@@ -206,6 +216,8 @@ export default function App() {
               onDelete={handleDelete}
               onTrigger={handleTrigger}
               onRetryTask={handleRetryTask}
+              onApproveRun={handleApproveRun}
+              onRejectRun={handleRejectRun}
             />
           ) : view === "settings" ? (
             <SettingsPage onSettingsChanged={setSettings} />
@@ -240,6 +252,8 @@ export default function App() {
               onRetryFlow={handleRetryFlow}
               onResumeFlow={handleResumeFlow}
               onViewTaskDetail={setSelectedTaskDetail}
+              onApproveRun={handleApproveRun}
+              onRejectRun={handleRejectRun}
             />
           ) : (
             <FlowDashboard

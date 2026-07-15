@@ -260,6 +260,16 @@ input, textarea, select {
   background: rgba(239, 68, 68, 0.08);
 }
 
+.btn-approve {
+  background: transparent;
+  color: var(--success);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.btn-approve:hover {
+  background: rgba(34, 197, 94, 0.08);
+}
+
 .btn-sm {
   height: 28px;
   padding: 0 10px;
@@ -436,6 +446,11 @@ input, textarea, select {
 .status-pill.queued {
   background: rgba(113, 113, 122, 0.15);
   color: var(--queued);
+}
+
+.status-pill.awaiting_approval {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--warning);
 }
 
 .status-pill.done,
@@ -941,6 +956,31 @@ input, textarea, select {
 .schedule-badge-sm {
   color: var(--info);
   font-size: 0.75rem;
+}
+
+.approval-badge-sm {
+  color: var(--warning);
+  font-size: 0.75rem;
+}
+
+.approval-required-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--warning);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 20px;
+  padding: 2px 8px;
+}
+
+.flow-detail-approval-banner {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: var(--warning);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  margin-bottom: 10px;
 }
 
 .schedule-meta {
@@ -1806,6 +1846,11 @@ input, textarea, select {
   border-color: var(--queued);
 }
 
+.flow-node-awaiting_approval {
+  border-color: var(--warning);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
+}
+
 .flow-node-header {
   display: flex;
   align-items: center;
@@ -1864,6 +1909,12 @@ input, textarea, select {
 .flow-node-status.cancelled {
   background: rgba(113, 113, 122, 0.12);
   color: var(--text-muted);
+}
+
+.flow-node-status.awaiting_approval {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--warning);
+  animation: pulse 2s ease-in-out infinite;
 }
 
 .flow-node-meta {

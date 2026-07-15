@@ -11,12 +11,21 @@ export interface TaskNodeData {
   maxRetries: number;
   attemptNumber: number | null;
   latestRunTrigger: string | null;
+  requiresApproval: boolean;
   [key: string]: unknown;
 }
 
 function TaskNode({ data }: NodeProps) {
-  const { title, latestRunStatus, model, schedule, maxRetries, attemptNumber, latestRunTrigger } =
-    data as unknown as TaskNodeData;
+  const {
+    title,
+    latestRunStatus,
+    model,
+    schedule,
+    maxRetries,
+    attemptNumber,
+    latestRunTrigger,
+    requiresApproval,
+  } = data as unknown as TaskNodeData;
   const displayStatus = latestRunStatus || "idle";
   const statusClass = displayStatus === "cancelled" ? "cancelled" : displayStatus;
   const modelShort = ((model as string) || "")
@@ -27,6 +36,7 @@ function TaskNode({ data }: NodeProps) {
   const isRetry = latestRunTrigger === "retry";
   const showRetryBadge = isRetry && attemptNumber && attemptNumber > 1;
   const hasAutoRetry = maxRetries > 0;
+  const isAwaitingApproval = displayStatus === "awaiting_approval";
 
   return (
     <div className={`flow-node flow-node-${statusClass}`}>
@@ -38,9 +48,16 @@ function TaskNode({ data }: NodeProps) {
               &#x23f0;{" "}
             </span>
           )}
+          {!!requiresApproval && (
+            <span className="approval-badge-sm" title="Requires approval before running">
+              &#x2713;{" "}
+            </span>
+          )}
           {title as string}
         </span>
-        <span className={`flow-node-status ${statusClass}`}>{displayStatus as string}</span>
+        <span className={`flow-node-status ${statusClass}`}>
+          {isAwaitingApproval ? "needs approval" : (displayStatus as string)}
+        </span>
       </div>
       <div className="flow-node-meta">
         {modelShort}

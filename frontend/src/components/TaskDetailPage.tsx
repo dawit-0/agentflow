@@ -12,6 +12,8 @@ interface Props {
   onDelete: (id: string) => void;
   onTrigger: (id: string) => void;
   onRetryTask: (id: string) => void;
+  onApproveRun: (runId: string) => void;
+  onRejectRun: (runId: string) => void;
 }
 
 function formatTimestamp(iso: string): string {
@@ -76,6 +78,8 @@ export default function TaskDetailPage({
   onDelete,
   onTrigger,
   onRetryTask,
+  onApproveRun,
+  onRejectRun,
 }: Props) {
   const [task, setTask] = useState<Task | null>(null);
   const [runs, setRuns] = useState<TaskRun[]>([]);
@@ -233,6 +237,7 @@ export default function TaskDetailPage({
   const displayStatus = selectedRun?.status || task.latest_run?.status || "idle";
   const isRunning = displayStatus === "running" || displayStatus === "queued";
   const isFailed = displayStatus === "failed" || displayStatus === "cancelled";
+  const isAwaitingApproval = selectedRun?.approval_status === "pending";
 
   const permissions = task.permissions;
   const enabledPerms = Object.entries(permissions)
@@ -248,10 +253,28 @@ export default function TaskDetailPage({
             &larr; Back
           </button>
           <h2 className="task-detail-title">{task.title}</h2>
-          <span className={`status-pill ${displayStatus}`}>{displayStatus}</span>
+          <span className={`status-pill ${displayStatus}`}>
+            {isAwaitingApproval ? "needs approval" : displayStatus}
+          </span>
         </div>
         <div className="task-detail-header-actions">
-          {isRunning && (
+          {isAwaitingApproval && selectedRun && (
+            <>
+              <button
+                className="btn btn-sm btn-approve"
+                onClick={() => onApproveRun(selectedRun.id)}
+              >
+                &#x2713; Approve
+              </button>
+              <button
+                className="btn btn-sm btn-danger"
+                onClick={() => onRejectRun(selectedRun.id)}
+              >
+                &#x2715; Reject
+              </button>
+            </>
+          )}
+          {isRunning && !isAwaitingApproval && (
             <button className="btn btn-sm btn-danger" onClick={() => onCancel(taskId)}>
               Cancel
             </button>

@@ -63,6 +63,9 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
   // Sandbox: "inherit" (use settings default), "" (force host), or "docker"
   const [sandbox, setSandbox] = useState<"inherit" | "" | "docker">("inherit");
 
+  // Approval gate: hold the run until a human approves it before it executes
+  const [requiresApproval, setRequiresApproval] = useState(false);
+
   // Whether to trigger immediately
   const [triggerNow, setTriggerNow] = useState(true);
 
@@ -122,6 +125,7 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
           max_retries: maxRetries > 0 ? maxRetries : undefined,
           retry_delay_seconds: maxRetries > 0 ? retryDelay : undefined,
           sandbox: sandboxValue,
+          requires_approval: requiresApproval,
         } as Parameters<typeof api.tasks.create>[0]);
 
         // Trigger immediately if requested and no schedule
@@ -262,6 +266,24 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
               </p>
             )}
           </div>
+
+          {!isSpawn && (
+            <div className="form-group">
+              <label className="permission-toggle">
+                <input
+                  type="checkbox"
+                  checked={requiresApproval}
+                  onChange={(e) => setRequiresApproval(e.target.checked)}
+                />
+                <span>Require approval before running</span>
+              </label>
+              <p className="field-hint">
+                Every run of this task will pause and wait for you to approve
+                or reject it before it starts — useful for gating risky steps
+                like deploys, pushes, or sending messages.
+              </p>
+            </div>
+          )}
 
           {!hasSchedule && (
             <div className="form-group">

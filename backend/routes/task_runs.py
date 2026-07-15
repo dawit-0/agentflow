@@ -2,8 +2,19 @@ from fastapi import APIRouter
 from database import get_db
 from db import task_runs as db_task_runs, task_run_output as db_output
 from db import task_xcom as db_xcom
+from models import ApprovalDecision
 
 router = APIRouter(prefix="/api/task-runs", tags=["task-runs"])
+
+
+@router.get("/pending-approvals")
+async def list_pending_approvals():
+    """All runs currently held pending a human approval decision."""
+    db = await get_db()
+    try:
+        return await db_task_runs.get_pending_approvals(db)
+    finally:
+        await db.close()
 
 
 @router.get("")
@@ -57,3 +68,17 @@ async def get_run_xcom(run_id: str):
         return {"run_id": run_id, "xcom": entries}
     finally:
         await db.close()
+
+
+@router.post("/{run_id}/approve")
+async def approve_task_run(run_id: str, body: ApprovalDecision | None = None):
+    """Approve a run that's pending approval so it becomes eligible to dispatch."""
+    from main import orchestrator
+    return await orchestrator.approve_task_run(run_id, body.note if body else None)
+
+
+@router.post("/{run_id}/reject")
+async def reject_task_run(run_id: str, body: ApprovalDecision | None = None):
+    """Reject a run that's pending approval, cancelling it and its downstream tasks."""
+    from main import orchestrator
+    return await orchestrator.reject_task_run(run_id, body.note if body else None)
