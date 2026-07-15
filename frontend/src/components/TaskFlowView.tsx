@@ -38,6 +38,8 @@ function getStatusColor(status: string | null): string {
       return "#71717a";
     case "queued":
       return "#71717a";
+    case "awaiting_approval":
+      return "#f59e0b";
     default:
       return "#71717a";
   }
@@ -76,6 +78,7 @@ function layoutGraph(
         maxRetries: n.max_retries || 0,
         attemptNumber: n.attempt_number,
         latestRunTrigger: n.latest_run_trigger,
+        requiresApproval: n.requires_approval,
       },
     };
   });
@@ -116,6 +119,8 @@ interface Props {
   onRetryFlow: (id: string) => void;
   onResumeFlow: (id: string) => void;
   onViewTaskDetail: (id: string) => void;
+  onApproveRun: (runId: string) => void;
+  onRejectRun: (runId: string) => void;
 }
 
 export default function TaskFlowView({
@@ -127,6 +132,8 @@ export default function TaskFlowView({
   onRetryFlow,
   onResumeFlow,
   onViewTaskDetail,
+  onApproveRun,
+  onRejectRun,
 }: Props) {
   const [nodes, setNodes, onNodesChange] = useNodesState([] as Node[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[]);
@@ -233,6 +240,22 @@ export default function TaskFlowView({
     [onRetryTask, loadDag]
   );
 
+  const handleApproveRun = useCallback(
+    (runId: string) => {
+      onApproveRun(runId);
+      setTimeout(loadDag, 500);
+    },
+    [onApproveRun, loadDag]
+  );
+
+  const handleRejectRun = useCallback(
+    (runId: string) => {
+      onRejectRun(runId);
+      setTimeout(loadDag, 500);
+    },
+    [onRejectRun, loadDag]
+  );
+
   const handleRetryFlow = useCallback(() => {
     if (selectedFlow) {
       onRetryFlow(selectedFlow);
@@ -323,6 +346,8 @@ export default function TaskFlowView({
           onDelete={handleDelete}
           onTrigger={handleTrigger}
           onRetryTask={handleRetryTask}
+          onApproveRun={handleApproveRun}
+          onRejectRun={handleRejectRun}
           onNodeSelect={(id) => setSelectedNodeId(id)}
           onViewDetail={onViewTaskDetail}
         />

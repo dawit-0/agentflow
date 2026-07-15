@@ -49,10 +49,15 @@ async def insert(db: aiosqlite.Connection, run_id: str, task_id: str,
                   run_number: int, trigger: str = "manual",
                   status: str = "queued", attempt_number: int = 1,
                   retry_of_run_id: Optional[str] = None) -> None:
+    # Every new run for a task with requires_approval=1 is born holding
+    # approval_status='pending' — this is computed here (rather than passed
+    # in by each of the many call sites that create runs) so the gate can
+    # never be bypassed by a call site that forgets to check the flag.
     await db.execute(
-        """INSERT INTO task_runs (id, task_id, run_number, trigger, status, attempt_number, retry_of_run_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (run_id, task_id, run_number, trigger, status, attempt_number, retry_of_run_id),
+        """INSERT INTO task_runs (id, task_id, run_number, trigger, status, attempt_number, retry_of_run_id, approval_status)
+           SELECT ?, ?, ?, ?, ?, ?, ?,
+                  CASE WHEN (SELECT requires_approval FROM tasks WHERE id = ?) = 1 THEN 'pending' ELSE NULL END""",
+        (run_id, task_id, run_number, trigger, status, attempt_number, retry_of_run_id, task_id),
     )
 
 
@@ -147,12 +152,14 @@ async def get_attempt_number(db: aiosqlite.Connection, run_id: str) -> Optional[
 
 
 async def get_queued_ready(db: aiosqlite.Connection, limit: int) -> list[dict]:
-    """Get queued runs whose task is active and all upstream deps are met."""
+    """Get queued runs whose task is active, all upstream deps are met, and
+    (if the task requires approval) a human has already approved this run."""
     cursor = await db.execute(
         """SELECT tr.*, t.prompt, t.model, t.work_dir, t.permissions, t.priority, t.sandbox AS task_sandbox
            FROM task_runs tr
            JOIN tasks t ON t.id = tr.task_id
            WHERE tr.status = 'queued' AND t.status = 'active'
+           AND (tr.approval_status IS NULL OR tr.approval_status = 'approved')
            AND NOT EXISTS (
                SELECT 1 FROM task_dependencies td
                WHERE td.task_id = tr.task_id
@@ -194,3 +201,41 @@ async def has_active_run(db: aiosqlite.Connection, task_id: str) -> bool:
         (task_id,),
     )
     return await cursor.fetchone() is not None
+
+
+async def get_pending_unnotified(db: aiosqlite.Connection) -> list[dict]:
+    """Runs newly awaiting approval that haven't triggered a notification yet."""
+    cursor = await db.execute(
+        """SELECT tr.id, tr.task_id, t.title, t.flow_id
+           FROM task_runs tr
+           JOIN tasks t ON t.id = tr.task_id
+           WHERE tr.approval_status = 'pending' AND tr.approval_notified = 0"""
+    )
+    return [dict(r) for r in await cursor.fetchall()]
+
+
+async def mark_approval_notified(db: aiosqlite.Connection, run_id: str) -> None:
+    await db.execute(
+        "UPDATE task_runs SET approval_notified = 1 WHERE id = ?", (run_id,)
+    )
+
+
+async def set_approval_decision(db: aiosqlite.Connection, run_id: str,
+                                 decision: str, note: Optional[str] = None) -> None:
+    await db.execute(
+        """UPDATE task_runs SET approval_status = ?, approval_note = ?,
+           approval_decided_at = datetime('now') WHERE id = ?""",
+        (decision, note, run_id),
+    )
+
+
+async def get_pending_approvals(db: aiosqlite.Connection) -> list[dict]:
+    """All runs currently awaiting a human decision, oldest first."""
+    cursor = await db.execute(
+        """SELECT tr.*, t.title as task_title, t.flow_id
+           FROM task_runs tr
+           JOIN tasks t ON t.id = tr.task_id
+           WHERE tr.approval_status = 'pending'
+           ORDER BY tr.started_at ASC"""
+    )
+    return [dict(r) for r in await cursor.fetchall()]

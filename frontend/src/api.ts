@@ -60,10 +60,13 @@ export interface Task {
   next_run_at: string | null;
   last_run_at: string | null;
   sandbox: string;
+  requires_approval: boolean;
   created_at: string;
   updated_at: string;
   latest_run?: TaskRun | null;
 }
+
+export type ApprovalStatus = "pending" | "approved" | "rejected" | null;
 
 export interface TaskRun {
   id: string;
@@ -83,6 +86,9 @@ export interface TaskRun {
   retry_of_run_id: string | null;
   sandbox: string | null;
   container_name: string | null;
+  approval_status: ApprovalStatus;
+  approval_note: string | null;
+  approval_decided_at: string | null;
 }
 
 export interface TaskRunOutput {
@@ -101,10 +107,15 @@ export interface DagNode {
   schedule: string | null;
   max_retries: number;
   retry_delay_seconds: number;
+  requires_approval: boolean;
+  // Synthesized to "awaiting_approval" by the backend when the latest run is
+  // queued but held on a pending approval decision.
   latest_run_status: string | null;
+  latest_run_id: string | null;
   latest_run_number: number | null;
   attempt_number: number | null;
   latest_run_trigger: string | null;
+  latest_run_approval_status: ApprovalStatus;
   created_at: string;
   updated_at: string;
 }
@@ -231,7 +242,8 @@ export type NotificationKind =
   | "task_failed"
   | "task_succeeded"
   | "flow_completed"
-  | "flow_failed";
+  | "flow_failed"
+  | "approval_needed";
 
 export interface AppNotification {
   id: string;
@@ -289,6 +301,7 @@ export const api = {
       max_retries?: number;
       retry_delay_seconds?: number;
       sandbox?: string;
+      requires_approval?: boolean;
     }) => request<Task>("/tasks", { method: "POST", body: JSON.stringify(data) }),
     update: (
       id: string,
@@ -304,6 +317,7 @@ export const api = {
         schedule: string;
         schedule_enabled: boolean;
         sandbox: string;
+        requires_approval: boolean;
       }>
     ) =>
       request<Task>(`/tasks/${id}`, {
@@ -367,6 +381,17 @@ export const api = {
       );
     },
     xcom: (id: string) => request<{ run_id: string; xcom: Array<{ key: string; value: string }> }>(`/task-runs/${id}/xcom`),
+    pendingApprovals: () => request<TaskRun[]>("/task-runs/pending-approvals"),
+    approve: (id: string, note?: string) =>
+      request<{ ok?: boolean; error?: string }>(`/task-runs/${id}/approve`, {
+        method: "POST",
+        body: JSON.stringify({ note }),
+      }),
+    reject: (id: string, note?: string) =>
+      request<{ ok?: boolean; error?: string }>(`/task-runs/${id}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ note }),
+      }),
   },
   flows: {
     list: () => request<Flow[]>("/flows"),

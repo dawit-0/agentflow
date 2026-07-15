@@ -82,6 +82,7 @@ async def _init_test_db():
                 max_retries INTEGER DEFAULT 0,
                 retry_delay_seconds INTEGER DEFAULT 10,
                 sandbox TEXT DEFAULT '',
+                requires_approval INTEGER DEFAULT 0,
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             );
@@ -112,6 +113,10 @@ async def _init_test_db():
                 retry_of_run_id TEXT REFERENCES task_runs(id),
                 sandbox TEXT,
                 container_name TEXT,
+                approval_status TEXT CHECK(approval_status IN ('pending','approved','rejected') OR approval_status IS NULL),
+                approval_note TEXT,
+                approval_decided_at TEXT,
+                approval_notified INTEGER DEFAULT 0,
                 UNIQUE(task_id, run_number)
             );
             CREATE TABLE IF NOT EXISTS task_xcom (

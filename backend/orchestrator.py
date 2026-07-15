@@ -16,7 +16,7 @@ from db import task_xcom as db_xcom
 from db import settings as db_settings
 from logging_config import get_logger, task_logger
 from models import DEFAULT_PERMISSIONS
-from notifications import maybe_notify_run_finished, notify_flow_completed
+from notifications import maybe_notify_run_finished, notify_flow_completed, notify_approval_needed
 from providers.sandbox import SandboxConfig
 
 logger = get_logger("orchestrator")
@@ -60,6 +60,7 @@ class Orchestrator:
                              self._max_concurrent_runs - len(self.running_providers))
                 await self._check_task_schedules()
                 await self._check_flow_schedules()
+                await self._check_pending_approvals()
                 await self._dispatch_queued_runs()
             except Exception:
                 logger.exception("poll cycle error")
@@ -124,6 +125,85 @@ class Orchestrator:
 
                 await db_flows.update_schedule_times(db, flow_id, now_str, next_run_str)
                 await db.commit()
+        finally:
+            await db.close()
+
+    async def _check_pending_approvals(self):
+        """Notify once for each run newly held on a pending approval decision."""
+        db = await get_db()
+        try:
+            pending = await db_task_runs.get_pending_unnotified(db)
+            for row in pending:
+                run_id = row["id"]
+                task_id = row["task_id"]
+
+                await db_task_runs.mark_approval_notified(db, run_id)
+                await notify_approval_needed(
+                    db, self.sio,
+                    task={"id": task_id, "title": row["title"], "flow_id": row["flow_id"]},
+                    task_run_id=run_id,
+                )
+                await db.commit()
+
+                logger.info("run=%s task=%s is awaiting approval", run_id, task_id)
+                await self.sio.emit("task_run:approval_pending", {"id": run_id, "task_id": task_id})
+                await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "awaiting_approval"})
+        finally:
+            await db.close()
+
+    async def approve_task_run(self, run_id: str, note: Optional[str] = None) -> dict:
+        """Approve a run that's pending approval, making it eligible for dispatch."""
+        db = await get_db()
+        try:
+            run = await db_task_runs.get_by_id(db, run_id)
+            if not run or dict(run).get("approval_status") != "pending":
+                return {"error": "run is not pending approval"}
+
+            task_id = dict(run)["task_id"]
+            await db_task_runs.set_approval_decision(db, run_id, "approved", note)
+            await db.commit()
+
+            logger.info("run=%s task=%s approved", run_id, task_id)
+            await self.sio.emit("task_run:approval_resolved", {"id": run_id, "task_id": task_id, "decision": "approved"})
+            await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "queued"})
+            return {"ok": True, "id": run_id, "task_id": task_id, "decision": "approved"}
+        finally:
+            await db.close()
+
+    async def reject_task_run(self, run_id: str, note: Optional[str] = None) -> dict:
+        """Reject a run that's pending approval: cancel it and cascade-cancel downstream."""
+        db = await get_db()
+        try:
+            run = await db_task_runs.get_by_id(db, run_id)
+            if not run or dict(run).get("approval_status") != "pending":
+                return {"error": "run is not pending approval"}
+
+            task_id = dict(run)["task_id"]
+            await db_task_runs.set_approval_decision(db, run_id, "rejected", note)
+            await db_task_runs.cancel(db, run_id)
+            await self._cascade_cancel_downstream(db, task_id)
+
+            task_row = await db_tasks.get_by_id(db, task_id)
+            if task_row:
+                try:
+                    await maybe_notify_run_finished(
+                        db, self.sio,
+                        task=dict(task_row),
+                        task_run_id=run_id,
+                        status="failed",
+                        error_message=f"Rejected{f': {note}' if note else ''}",
+                    )
+                except Exception:
+                    logger.exception("rejection notification failed for run=%s", run_id)
+
+            await self._check_flow_completion(db, task_id)
+            await db.commit()
+
+            logger.info("run=%s task=%s rejected", run_id, task_id)
+            await self.sio.emit("task_run:approval_resolved", {"id": run_id, "task_id": task_id, "decision": "rejected"})
+            await self.sio.emit("task_run:finished", {"id": run_id, "task_id": task_id, "status": "cancelled"})
+            await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "cancelled"})
+            return {"ok": True, "id": run_id, "task_id": task_id, "decision": "rejected"}
         finally:
             await db.close()
 
