@@ -7,6 +7,7 @@ from database import get_db
 from db import tasks as db_tasks, task_runs as db_task_runs, flows as db_flows
 from db import task_dependencies as db_deps, task_run_output as db_output
 from db import questions as db_questions, task_xcom as db_xcom
+from db import flow_runs as db_flow_runs
 from models import TaskCreate, TaskUpdate, TaskTrigger, DependencyAdd, QuickTaskCreate, DEFAULT_PERMISSIONS
 import cron as cron_parser
 
@@ -77,7 +78,9 @@ async def quick_create_task(body: QuickTaskCreate):
         # Trigger immediately if requested
         if body.trigger and not body.schedule:
             run_id = str(uuid.uuid4())
-            await db_task_runs.insert(db, run_id, task_id, 1, trigger="manual")
+            flow_run = await db_flow_runs.create_partial(db, flow_id)
+            await db_task_runs.insert(db, run_id, task_id, 1, trigger="manual",
+                                      flow_run_id=flow_run["id"])
 
         await db.commit()
         row = await db_tasks.get_by_id(db, task_id)
@@ -163,7 +166,9 @@ async def create_task(body: TaskCreate):
         # Trigger immediately if requested and no schedule
         if body.trigger and not body.schedule:
             run_id = str(uuid.uuid4())
-            await db_task_runs.insert(db, run_id, task_id, 1, trigger="manual")
+            flow_run = await db_flow_runs.create_partial(db, flow_id)
+            await db_task_runs.insert(db, run_id, task_id, 1, trigger="manual",
+                                      flow_run_id=flow_run["id"])
 
         await db.commit()
         row = await db_tasks.get_by_id(db, task_id)
@@ -238,7 +243,10 @@ async def trigger_task(task_id: str, body: TaskTrigger = None):
         run_number = await db_task_runs.next_run_number(db, task_id)
         run_id = str(uuid.uuid4())
 
-        await db_task_runs.insert(db, run_id, task_id, run_number, trigger="manual")
+        # A single-task trigger is a mid-graph execution: its own partial flow run
+        flow_run = await db_flow_runs.create_partial(db, dict(row)["flow_id"])
+        await db_task_runs.insert(db, run_id, task_id, run_number, trigger="manual",
+                                  flow_run_id=flow_run["id"])
         await db.commit()
 
         run = await db_task_runs.get_by_id(db, run_id)

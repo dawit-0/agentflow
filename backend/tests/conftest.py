@@ -47,9 +47,24 @@ async def _init_test_db():
                 schedule_enabled INTEGER DEFAULT 1,
                 next_run_at TEXT,
                 last_run_at TEXT,
+                max_active_runs INTEGER DEFAULT 1,
                 created_at TEXT DEFAULT (datetime('now')),
                 archived INTEGER DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS flow_runs (
+                id TEXT PRIMARY KEY,
+                flow_id TEXT NOT NULL REFERENCES flows(id),
+                run_number INTEGER NOT NULL,
+                trigger TEXT DEFAULT 'manual' CHECK(trigger IN ('manual','schedule','retry','resume')),
+                partial INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'running' CHECK(status IN ('queued','running','success','failed','cancelled')),
+                created_at TEXT DEFAULT (datetime('now')),
+                started_at TEXT,
+                finished_at TEXT,
+                total_cost_usd REAL DEFAULT 0,
+                UNIQUE(flow_id, run_number)
+            );
+            CREATE INDEX IF NOT EXISTS idx_flow_runs_flow ON flow_runs(flow_id, run_number);
             CREATE TABLE IF NOT EXISTS agents (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -112,8 +127,11 @@ async def _init_test_db():
                 retry_of_run_id TEXT REFERENCES task_runs(id),
                 sandbox TEXT,
                 container_name TEXT,
+                flow_run_id TEXT REFERENCES flow_runs(id),
+                not_before TEXT,
                 UNIQUE(task_id, run_number)
             );
+            CREATE INDEX IF NOT EXISTS idx_runs_flow_run ON task_runs(flow_run_id, status);
             CREATE TABLE IF NOT EXISTS task_xcom (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 task_run_id TEXT NOT NULL REFERENCES task_runs(id),
@@ -166,7 +184,7 @@ async def _wipe_all_tables():
     try:
         for table in (
             "task_xcom", "questions", "notifications",
-            "task_runs", "task_dependencies", "tasks", "agents", "flows",
+            "task_runs", "task_dependencies", "tasks", "flow_runs", "agents", "flows",
             "settings",
         ):
             await db.execute(f"DELETE FROM {table}")

@@ -48,11 +48,16 @@ async def next_run_number(db: aiosqlite.Connection, task_id: str) -> int:
 async def insert(db: aiosqlite.Connection, run_id: str, task_id: str,
                   run_number: int, trigger: str = "manual",
                   status: str = "queued", attempt_number: int = 1,
-                  retry_of_run_id: Optional[str] = None) -> None:
+                  retry_of_run_id: Optional[str] = None,
+                  flow_run_id: Optional[str] = None,
+                  not_before_seconds: Optional[int] = None) -> None:
     await db.execute(
-        """INSERT INTO task_runs (id, task_id, run_number, trigger, status, attempt_number, retry_of_run_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (run_id, task_id, run_number, trigger, status, attempt_number, retry_of_run_id),
+        """INSERT INTO task_runs (id, task_id, run_number, trigger, status,
+                                  attempt_number, retry_of_run_id, flow_run_id, not_before)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?,
+                   CASE WHEN ? IS NOT NULL THEN datetime('now', '+' || ? || ' seconds') END)""",
+        (run_id, task_id, run_number, trigger, status, attempt_number,
+         retry_of_run_id, flow_run_id, not_before_seconds, not_before_seconds),
     )
 
 
@@ -146,24 +151,55 @@ async def get_attempt_number(db: aiosqlite.Connection, run_id: str) -> Optional[
     return await cursor.fetchone()
 
 
+# Dependency-met predicate for a queued run, scoped to its flow run:
+#  - upstream has run(s) in the same flow run  -> its latest in-run attempt must be success
+#  - upstream absent from a full flow run      -> wait (it will be cascaded in)
+#  - upstream absent from a partial flow run,
+#    or the run predates flow_runs (NULL)      -> fall back to global latest success
+_DEP_MET_SQL = """
+    CASE
+        WHEN tr.flow_run_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM task_runs d
+            WHERE d.task_id = td.depends_on_task_id AND d.flow_run_id = tr.flow_run_id
+        ) THEN EXISTS (
+            SELECT 1 FROM task_runs d
+            WHERE d.task_id = td.depends_on_task_id
+            AND d.flow_run_id = tr.flow_run_id
+            AND d.status = 'success'
+            AND d.run_number = (
+                SELECT MAX(run_number) FROM task_runs
+                WHERE task_id = td.depends_on_task_id AND flow_run_id = tr.flow_run_id
+            )
+        )
+        WHEN tr.flow_run_id IS NOT NULL AND COALESCE(fr.partial, 0) = 0 THEN 0
+        ELSE EXISTS (
+            SELECT 1 FROM task_runs d
+            WHERE d.task_id = td.depends_on_task_id
+            AND d.status = 'success'
+            AND d.run_number = (
+                SELECT MAX(run_number) FROM task_runs WHERE task_id = td.depends_on_task_id
+            )
+        )
+    END
+"""
+
+
 async def get_queued_ready(db: aiosqlite.Connection, limit: int) -> list[dict]:
-    """Get queued runs whose task is active and all upstream deps are met."""
+    """Get queued runs whose task is active, whose retry delay (not_before) has
+    elapsed, whose flow run is dispatchable, and whose upstream deps are met
+    within their flow run."""
     cursor = await db.execute(
-        """SELECT tr.*, t.prompt, t.model, t.work_dir, t.permissions, t.priority, t.sandbox AS task_sandbox
+        f"""SELECT tr.*, t.prompt, t.model, t.work_dir, t.permissions, t.priority, t.sandbox AS task_sandbox
            FROM task_runs tr
            JOIN tasks t ON t.id = tr.task_id
+           LEFT JOIN flow_runs fr ON fr.id = tr.flow_run_id
            WHERE tr.status = 'queued' AND t.status = 'active'
+           AND (tr.not_before IS NULL OR tr.not_before <= datetime('now'))
+           AND (tr.flow_run_id IS NULL OR fr.status = 'running')
            AND NOT EXISTS (
                SELECT 1 FROM task_dependencies td
                WHERE td.task_id = tr.task_id
-               AND NOT EXISTS (
-                   SELECT 1 FROM task_runs dep_run
-                   WHERE dep_run.task_id = td.depends_on_task_id
-                   AND dep_run.status = 'success'
-                   AND dep_run.run_number = (
-                       SELECT MAX(run_number) FROM task_runs WHERE task_id = td.depends_on_task_id
-                   )
-               )
+               AND NOT ({_DEP_MET_SQL})
            )
            ORDER BY t.priority DESC, tr.started_at ASC LIMIT ?""",
         (limit,),
@@ -180,17 +216,38 @@ async def get_latest_successful(db: aiosqlite.Connection, task_id: str) -> Optio
     return await cursor.fetchone()
 
 
+async def get_latest_successful_in_flow_run(db: aiosqlite.Connection, task_id: str,
+                                            flow_run_id: str) -> Optional[aiosqlite.Row]:
+    cursor = await db.execute(
+        """SELECT * FROM task_runs
+           WHERE task_id = ? AND flow_run_id = ? AND status = 'success'
+           ORDER BY run_number DESC LIMIT 1""",
+        (task_id, flow_run_id),
+    )
+    return await cursor.fetchone()
+
+
 async def get_active_run(db: aiosqlite.Connection, task_id: str) -> Optional[aiosqlite.Row]:
     cursor = await db.execute(
-        "SELECT id FROM task_runs WHERE task_id = ? AND status IN ('running', 'queued') ORDER BY run_number DESC LIMIT 1",
+        "SELECT * FROM task_runs WHERE task_id = ? AND status IN ('running', 'queued') ORDER BY run_number DESC LIMIT 1",
         (task_id,),
     )
     return await cursor.fetchone()
 
 
-async def has_active_run(db: aiosqlite.Connection, task_id: str) -> bool:
-    cursor = await db.execute(
-        "SELECT id FROM task_runs WHERE task_id = ? AND status IN ('queued', 'running')",
-        (task_id,),
-    )
+async def has_active_run(db: aiosqlite.Connection, task_id: str,
+                         flow_run_id: Optional[str] = None) -> bool:
+    """Active run check; scoped to one flow run when flow_run_id is given so
+    concurrent flow runs of the same task don't block each other."""
+    if flow_run_id:
+        cursor = await db.execute(
+            """SELECT id FROM task_runs
+               WHERE task_id = ? AND flow_run_id = ? AND status IN ('queued', 'running')""",
+            (task_id, flow_run_id),
+        )
+    else:
+        cursor = await db.execute(
+            "SELECT id FROM task_runs WHERE task_id = ? AND status IN ('queued', 'running')",
+            (task_id,),
+        )
     return await cursor.fetchone() is not None

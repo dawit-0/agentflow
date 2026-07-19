@@ -94,6 +94,7 @@ class FlowUpdate(BaseModel):
     description: Optional[str] = None
     schedule: Optional[str] = None
     schedule_enabled: Optional[bool] = None
+    max_active_runs: Optional[int] = None
 
 
 class AgentCreate(BaseModel):

@@ -2099,6 +2099,140 @@ input, textarea, select {
   background: rgba(245, 158, 11, 0.08) !important;
 }
 
+/* ===== Flow run history panel ===== */
+
+.flow-run-history {
+  position: absolute;
+  top: 64px; /* below the centered Resume/Retry toolbar */
+  left: 12px;
+  z-index: 10;
+  width: 240px;
+  max-height: 50%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.flow-run-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.flow-run-history-live {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 0;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.flow-run-history-list {
+  overflow-y: auto;
+}
+
+.flow-run-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.flow-run-item:last-child {
+  border-bottom: none;
+}
+
+.flow-run-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.flow-run-item.selected {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.flow-run-item-number {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.flow-run-item-time {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flow-run-item-partial {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.flow-run-item-cost {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+
+.flow-run-item-cancel {
+  background: none;
+  border: none;
+  color: var(--danger, #ef4444);
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 2px 4px;
+}
+
+.run-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.run-dot-running {
+  background: #22c55e;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.run-dot-success {
+  background: #22c55e;
+}
+
+.run-dot-failed {
+  background: #ef4444;
+}
+
+.run-dot-cancelled {
+  background: #71717a;
+}
+
+.run-dot-queued {
+  background: #eab308;
+}
+
 /* Retry button in detail panel */
 .btn-retry {
   background: transparent;

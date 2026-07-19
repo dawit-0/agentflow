@@ -2,10 +2,24 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "agentflow-backend",
+      "runtimeExecutable": "/Users/dawit/dev/agentflow/backend/venv/bin/python",
+      "runtimeArgs": ["main.py"],
+      "port": 3000,
+      "cwd": "/Users/dawit/dev/agentflow/backend"
+    },
+    {
       "name": "agentflow-frontend",
       "runtimeExecutable": "/opt/homebrew/bin/npx",
       "runtimeArgs": ["vite", "--host"],
       "port": 5173,
+      "cwd": "/Users/dawit/dev/agentflow/frontend"
+    },
+    {
+      "name": "agentflow-frontend-preview",
+      "runtimeExecutable": "/opt/homebrew/bin/npx",
+      "runtimeArgs": ["vite", "--host", "--port", "5273"],
+      "port": 5273,
       "cwd": "/Users/dawit/dev/agentflow/frontend"
     }
   ]

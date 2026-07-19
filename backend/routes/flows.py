@@ -5,6 +5,7 @@ from database import get_db
 from db import flows as db_flows, tasks as db_tasks, task_runs as db_task_runs
 from db import task_run_output as db_output, task_dependencies as db_deps
 from db import questions as db_questions, task_xcom as db_xcom
+from db import flow_runs as db_flow_runs
 from models import FlowCreate, FlowUpdate
 import cron as cron_parser
 
@@ -92,6 +93,7 @@ async def archive_flow(flow_id: str):
         await db_xcom.delete_by_flow(db, flow_id)
         await db_output.delete_by_flow(db, flow_id)
         await db_task_runs.delete_by_flow(db, flow_id)
+        await db_flow_runs.delete_by_flow(db, flow_id)
         await db_deps.delete_by_flow(db, flow_id)
         await db_tasks.delete_by_flow(db, flow_id)
         await db_flows.clear_agent_flow_references(db, flow_id)
@@ -104,33 +106,24 @@ async def archive_flow(flow_id: str):
 
 @router.post("/{flow_id}/retry")
 async def retry_flow(flow_id: str):
-    """Retry the entire flow from scratch — re-trigger all root tasks."""
+    """Retry the entire flow from scratch — a fresh flow run, superseding any active one."""
     db = await get_db()
     try:
         flow = await db_flows.get_by_id(db, flow_id)
         if not flow:
             return {"error": "flow not found"}, 404
 
-        # Cancel any running/queued runs first
+        # Cancel any running/queued runs and their flow runs first
         active_runs = await db_task_runs.get_active_by_flow(db, flow_id)
         for run_row in active_runs:
             await db_task_runs.cancel(db, run_row["id"])
+        await db_flow_runs.cancel_active_by_flow(db, flow_id)
 
-        # Find root tasks and trigger them
-        root_tasks = await db_tasks.get_root_tasks(db, flow_id)
-        created_runs = []
-
-        for task_row in root_tasks:
-            task_id = task_row["id"]
-            run_number = await db_task_runs.next_run_number(db, task_id)
-            run_id = str(uuid.uuid4())
-
-            await db_task_runs.insert(db, run_id, task_id, run_number,
-                                      trigger="retry")
-            created_runs.append({"id": run_id, "task_id": task_id, "run_number": run_number})
+        created = await db_flow_runs.create_for_flow(db, flow_id, trigger="retry")
 
         await db.commit()
-        return {"retried": len(created_runs), "runs": created_runs}
+        return {"retried": len(created["runs"]), "runs": created["runs"],
+                "flow_run": created["flow_run"]}
     finally:
         await db.close()
 
@@ -145,26 +138,27 @@ async def resume_flow(flow_id: str):
 
 @router.post("/{flow_id}/trigger")
 async def trigger_flow(flow_id: str):
-    """Manually trigger all root tasks (no upstream deps) in this flow."""
+    """Manually start a new flow run (queued if the flow is at max_active_runs)."""
     db = await get_db()
     try:
         flow = await db_flows.get_by_id(db, flow_id)
         if not flow:
             return {"error": "flow not found"}, 404
 
-        root_tasks = await db_tasks.get_root_tasks(db, flow_id)
-        created_runs = []
-
-        for task_row in root_tasks:
-            task_id = task_row["id"]
-            run_number = await db_task_runs.next_run_number(db, task_id)
-            run_id = str(uuid.uuid4())
-
-            await db_task_runs.insert(db, run_id, task_id, run_number,
-                                      trigger="manual")
-            created_runs.append({"id": run_id, "task_id": task_id, "run_number": run_number})
+        created = await db_flow_runs.create_for_flow(db, flow_id, trigger="manual")
 
         await db.commit()
-        return {"triggered": len(created_runs), "runs": created_runs}
+        return {"triggered": len(created["runs"]), "runs": created["runs"],
+                "flow_run": created["flow_run"]}
+    finally:
+        await db.close()
+
+
+@router.get("/{flow_id}/runs")
+async def list_flow_runs(flow_id: str):
+    """Run history for a flow, newest first, with per-task rollup counts."""
+    db = await get_db()
+    try:
+        return await db_flow_runs.list_by_flow(db, flow_id)
     finally:
         await db.close()
