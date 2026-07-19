@@ -12,14 +12,12 @@
 
 ## Quick Start
 
-**Requirements:** Python 3.11+, Node.js 18+, and the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) on your `PATH`. For OpenAI models, set `OPENAI_API_KEY`.
+**Requirements:** [uv](https://docs.astral.sh/uv/) (manages Python 3.11+ for you), Node.js 18+, and the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) on your `PATH`. For OpenAI models, set `OPENAI_API_KEY`.
 
 ```bash
 # Backend (http://localhost:3000)
 cd backend
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-python main.py
+uv run main.py
 
 # Frontend (http://localhost:5173)
 cd frontend

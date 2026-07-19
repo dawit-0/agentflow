@@ -37,7 +37,7 @@ class OpenAIProvider(BaseProvider):
             from openai import AsyncOpenAI
         except ImportError:
             self.exit_code = 1
-            self.stderr_data = "openai package is not installed — run: pip install openai"
+            self.stderr_data = "openai package is not installed — run: uv sync"
             yield ProviderEvent(type="error", content=self.stderr_data)
             return
 
