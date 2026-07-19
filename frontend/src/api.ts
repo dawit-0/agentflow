@@ -83,6 +83,28 @@ export interface TaskRun {
   retry_of_run_id: string | null;
   sandbox: string | null;
   container_name: string | null;
+  flow_run_id: string | null;
+  not_before: string | null;
+}
+
+export interface FlowRun {
+  id: string;
+  flow_id: string;
+  run_number: number;
+  trigger: "manual" | "schedule" | "retry" | "resume";
+  partial: number;
+  status: "queued" | "running" | "success" | "failed" | "cancelled";
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  total_cost_usd: number;
+  // Rollups present on list endpoint
+  total_tasks?: number;
+  succeeded_tasks?: number;
+  failed_tasks?: number;
+  active_tasks?: number;
+  // Present on detail endpoint
+  task_runs?: Array<TaskRun & { task_title: string | null }>;
 }
 
 export interface TaskRunOutput {
@@ -138,6 +160,7 @@ export interface Flow {
   schedule_enabled: boolean;
   next_run_at: string | null;
   last_run_at: string | null;
+  max_active_runs: number;
   created_at: string;
 }
 
@@ -392,12 +415,12 @@ export const api = {
     delete: (id: string) =>
       request<{ ok: boolean }>(`/flows/${id}`, { method: "DELETE" }),
     trigger: (id: string) =>
-      request<{ triggered: number; runs: Array<{ id: string; task_id: string }> }>(
+      request<{ triggered: number; runs: Array<{ id: string; task_id: string }>; flow_run: FlowRun }>(
         `/flows/${id}/trigger`,
         { method: "POST" }
       ),
     retry: (id: string) =>
-      request<{ retried: number; runs: Array<{ id: string; task_id: string }> }>(
+      request<{ retried: number; runs: Array<{ id: string; task_id: string }>; flow_run: FlowRun }>(
         `/flows/${id}/retry`,
         { method: "POST" }
       ),
@@ -406,6 +429,12 @@ export const api = {
         `/flows/${id}/resume`,
         { method: "POST" }
       ),
+    runs: (id: string) => request<FlowRun[]>(`/flows/${id}/runs`),
+  },
+  flowRuns: {
+    get: (id: string) => request<FlowRun>(`/flow-runs/${id}`),
+    cancel: (id: string) =>
+      request<{ ok: boolean }>(`/flow-runs/${id}/cancel`, { method: "POST" }),
   },
   debug: {
     status: () => request<DebugStatus>("/debug/status"),
