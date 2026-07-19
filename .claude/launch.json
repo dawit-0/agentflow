@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "agentflow-backend",
-      "runtimeExecutable": "/Users/dawit/dev/agentflow/backend/venv/bin/python",
+      "runtimeExecutable": "/Users/dawit/dev/agentflow/backend/.venv/bin/python",
       "runtimeArgs": ["main.py"],
       "port": 3000,
       "cwd": "/Users/dawit/dev/agentflow/backend"

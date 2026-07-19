@@ -13,7 +13,7 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
-    PATH=/usr/local/bin:/usr/bin:/bin:/home/agent/.local/bin
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/agent/.local/bin
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gnupg \
         jq \
         less \
+        passwd \
         python3 \
         python3-pip \
         python3-venv \
@@ -36,6 +37,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # Claude Code CLI
 RUN npm install -g @anthropic-ai/claude-code \
     && npm cache clean --force
+
+# uv — Python package manager available to sandboxed agent runs
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
 # Non-root user. The orchestrator mounts ~/.claude here so the CLI re-uses
 # the host's login.
