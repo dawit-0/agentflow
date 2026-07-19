@@ -24,9 +24,25 @@ async def init_db():
                 schedule_enabled INTEGER DEFAULT 1,
                 next_run_at TEXT,
                 last_run_at TEXT,
+                max_active_runs INTEGER DEFAULT 1,
                 created_at TEXT DEFAULT (datetime('now')),
                 archived INTEGER DEFAULT 0
             );
+
+            CREATE TABLE IF NOT EXISTS flow_runs (
+                id TEXT PRIMARY KEY,
+                flow_id TEXT NOT NULL REFERENCES flows(id),
+                run_number INTEGER NOT NULL,
+                trigger TEXT DEFAULT 'manual' CHECK(trigger IN ('manual','schedule','retry','resume')),
+                partial INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'running' CHECK(status IN ('queued','running','success','failed','cancelled')),
+                created_at TEXT DEFAULT (datetime('now')),
+                started_at TEXT,
+                finished_at TEXT,
+                total_cost_usd REAL DEFAULT 0,
+                UNIQUE(flow_id, run_number)
+            );
+            CREATE INDEX IF NOT EXISTS idx_flow_runs_flow ON flow_runs(flow_id, run_number);
 
             CREATE TABLE IF NOT EXISTS agents (
                 id TEXT PRIMARY KEY,
@@ -100,6 +116,8 @@ async def init_db():
                 error_message TEXT,
                 attempt_number INTEGER DEFAULT 1,
                 retry_of_run_id TEXT REFERENCES task_runs(id),
+                flow_run_id TEXT REFERENCES flow_runs(id),
+                not_before TEXT,
                 UNIQUE(task_id, run_number)
             );
 
@@ -152,12 +170,24 @@ async def init_db():
             ("agents", "default_sandbox", "ALTER TABLE agents ADD COLUMN default_sandbox TEXT DEFAULT ''"),
             ("task_runs", "sandbox", "ALTER TABLE task_runs ADD COLUMN sandbox TEXT"),
             ("task_runs", "container_name", "ALTER TABLE task_runs ADD COLUMN container_name TEXT"),
+            ("flows", "max_active_runs", "ALTER TABLE flows ADD COLUMN max_active_runs INTEGER DEFAULT 1"),
+            ("task_runs", "flow_run_id", "ALTER TABLE task_runs ADD COLUMN flow_run_id TEXT REFERENCES flow_runs(id)"),
+            ("task_runs", "not_before", "ALTER TABLE task_runs ADD COLUMN not_before TEXT"),
         ]:
             try:
                 await db.execute(ddl)
                 await db.commit()
             except Exception:
                 pass  # column already exists
+
+        # Index on a migrated column — must run after the ALTERs above
+        try:
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_runs_flow_run ON task_runs(flow_run_id, status)"
+            )
+            await db.commit()
+        except Exception:
+            pass
 
     finally:
         await db.close()

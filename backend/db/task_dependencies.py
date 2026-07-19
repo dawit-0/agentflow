@@ -1,3 +1,5 @@
+from typing import Optional
+
 import aiosqlite
 
 
@@ -85,7 +87,8 @@ async def insert_with_config(db: aiosqlite.Connection, task_id: str,
 
 
 async def get_unmet_upstream(db: aiosqlite.Connection, task_id: str) -> list[dict]:
-    """Get upstream deps that don't have a successful latest run."""
+    """Get upstream deps that don't have a successful latest run (global,
+    pre-flow_runs semantics — used for legacy runs)."""
     cursor = await db.execute(
         """SELECT td.depends_on_task_id FROM task_dependencies td
            WHERE td.task_id = ?
@@ -102,12 +105,66 @@ async def get_unmet_upstream(db: aiosqlite.Connection, task_id: str) -> list[dic
     return [dict(r) for r in await cursor.fetchall()]
 
 
-async def get_queued_downstream(db: aiosqlite.Connection, task_id: str) -> list[dict]:
-    """Get queued runs for tasks that depend on the given task."""
+async def get_unmet_upstream_in_flow_run(db: aiosqlite.Connection, task_id: str,
+                                         flow_run_id: str, partial: bool) -> list[dict]:
+    """Upstream deps not yet satisfied within the flow run.
+
+    A dep with runs in the flow run must have its latest in-run attempt
+    succeed. A dep with no run in the flow run is unmet for full runs
+    (it will be cascaded in), but falls back to the global latest success
+    for partial (mid-graph) runs.
+    """
     cursor = await db.execute(
-        """SELECT DISTINCT tr.id, tr.task_id FROM task_runs tr
-           JOIN task_dependencies td ON td.task_id = tr.task_id
-           WHERE td.depends_on_task_id = ? AND tr.status = 'queued'""",
-        (task_id,),
+        """SELECT td.depends_on_task_id FROM task_dependencies td
+           WHERE td.task_id = :task_id
+           AND NOT (
+               CASE
+                   WHEN EXISTS (
+                       SELECT 1 FROM task_runs d
+                       WHERE d.task_id = td.depends_on_task_id AND d.flow_run_id = :fr
+                   ) THEN EXISTS (
+                       SELECT 1 FROM task_runs d
+                       WHERE d.task_id = td.depends_on_task_id
+                       AND d.flow_run_id = :fr
+                       AND d.status = 'success'
+                       AND d.run_number = (
+                           SELECT MAX(run_number) FROM task_runs
+                           WHERE task_id = td.depends_on_task_id AND flow_run_id = :fr
+                       )
+                   )
+                   WHEN :partial THEN EXISTS (
+                       SELECT 1 FROM task_runs d
+                       WHERE d.task_id = td.depends_on_task_id
+                       AND d.status = 'success'
+                       AND d.run_number = (
+                           SELECT MAX(run_number) FROM task_runs WHERE task_id = td.depends_on_task_id
+                       )
+                   )
+                   ELSE 0
+               END
+           )""",
+        {"task_id": task_id, "fr": flow_run_id, "partial": 1 if partial else 0},
     )
+    return [dict(r) for r in await cursor.fetchall()]
+
+
+async def get_queued_downstream(db: aiosqlite.Connection, task_id: str,
+                                flow_run_id: Optional[str] = None) -> list[dict]:
+    """Get queued runs for tasks that depend on the given task, scoped to one
+    flow run when given so a failure can't cancel another run's tasks."""
+    if flow_run_id:
+        cursor = await db.execute(
+            """SELECT DISTINCT tr.id, tr.task_id FROM task_runs tr
+               JOIN task_dependencies td ON td.task_id = tr.task_id
+               WHERE td.depends_on_task_id = ? AND tr.status = 'queued'
+               AND tr.flow_run_id = ?""",
+            (task_id, flow_run_id),
+        )
+    else:
+        cursor = await db.execute(
+            """SELECT DISTINCT tr.id, tr.task_id FROM task_runs tr
+               JOIN task_dependencies td ON td.task_id = tr.task_id
+               WHERE td.depends_on_task_id = ? AND tr.status = 'queued'""",
+            (task_id,),
+        )
     return [dict(r) for r in await cursor.fetchall()]

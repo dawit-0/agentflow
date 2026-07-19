@@ -19,6 +19,7 @@ from orchestrator import Orchestrator
 from routes.tasks import router as tasks_router
 from routes.task_runs import router as task_runs_router
 from routes.flows import router as flows_router
+from routes.flow_runs import router as flow_runs_router
 from routes.agents import router as agents_router
 from routes.debug import router as debug_router
 from routes.models import router as models_router
@@ -70,6 +71,7 @@ app.add_middleware(
 app.include_router(tasks_router)
 app.include_router(task_runs_router)
 app.include_router(flows_router)
+app.include_router(flow_runs_router)
 app.include_router(agents_router)
 app.include_router(debug_router)
 app.include_router(models_router)

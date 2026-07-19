@@ -12,7 +12,7 @@ import cron as cron_parser
 from database import get_db
 from db import tasks as db_tasks, task_runs as db_task_runs, flows as db_flows
 from db import task_run_output as db_output, task_dependencies as db_deps
-from db import task_xcom as db_xcom
+from db import task_xcom as db_xcom, flow_runs as db_flow_runs
 from db import settings as db_settings
 from logging_config import get_logger, task_logger
 from models import DEFAULT_PERMISSIONS
@@ -31,9 +31,6 @@ class Orchestrator:
         self.running_providers: dict[str, "BaseProvider"] = {}  # run_id -> provider
         self._poll_task: Optional[asyncio.Task] = None
         self._max_concurrent_runs: int = MAX_CONCURRENT_RUNS
-        # Flow IDs we've already emitted a completion notification for since
-        # their last running task. Cleared when a task in the flow starts.
-        self._flow_complete_notified: set[str] = set()
 
     def update_max_concurrent(self, value: int):
         self._max_concurrent_runs = value
@@ -60,6 +57,7 @@ class Orchestrator:
                              self._max_concurrent_runs - len(self.running_providers))
                 await self._check_task_schedules()
                 await self._check_flow_schedules()
+                await self._check_flow_run_lifecycle()
                 await self._dispatch_queued_runs()
             except Exception:
                 logger.exception("poll cycle error")
@@ -79,8 +77,12 @@ class Orchestrator:
                 run_id = str(uuid.uuid4())
 
                 logger.info("schedule triggered task=%s", task_id)
+                # A task-level schedule is a mid-graph execution: partial flow run
+                flow_run = await db_flow_runs.create_partial(db, task["flow_id"],
+                                                             trigger="schedule")
                 await db_task_runs.insert(db, run_id, task_id, run_number,
-                                          trigger="schedule")
+                                          trigger="schedule",
+                                          flow_run_id=flow_run["id"])
 
                 # Advance next_run_at
                 next_run = cron_parser.next_run_after(task["schedule"], now)
@@ -105,18 +107,17 @@ class Orchestrator:
             for flow in flows:
                 flow_id = flow["id"]
 
-                root_tasks = await db_tasks.get_root_tasks_alt(db, flow_id)
+                created = await db_flow_runs.create_for_flow(db, flow_id,
+                                                             trigger="schedule")
+                flow_run = created["flow_run"]
+                logger.info("schedule triggered flow=%s flow_run=%s status=%s, %d root tasks",
+                            flow_id, flow_run["id"], flow_run["status"], len(created["runs"]))
 
-                logger.info("schedule triggered flow=%s, %d root tasks", flow_id, len(root_tasks))
-                for task_row in root_tasks:
-                    task_id = task_row["id"]
-                    run_number = await db_task_runs.next_run_number(db, task_id)
-                    run_id = str(uuid.uuid4())
-
-                    await db_task_runs.insert(db, run_id, task_id, run_number,
-                                              trigger="schedule")
-
-                    await self.sio.emit("task_run:started", {"id": run_id, "task_id": task_id, "trigger": "schedule"})
+                await self.sio.emit("flow_run:started", flow_run)
+                for run in created["runs"]:
+                    await self.sio.emit("task_run:started",
+                                        {"id": run["id"], "task_id": run["task_id"],
+                                         "trigger": "schedule", "flow_run_id": flow_run["id"]})
 
                 # Advance next_run_at for the flow
                 next_run = cron_parser.next_run_after(flow["schedule"], now)
@@ -152,13 +153,6 @@ class Orchestrator:
 
         await db_task_runs.set_running(db, run_id)
         await db.commit()
-
-        # Allow a fresh flow-completion notification next time this flow finishes.
-        task_row = await db_tasks.get_by_id(db, task_id)
-        if task_row:
-            fid = dict(task_row).get("flow_id")
-            if fid:
-                self._flow_complete_notified.discard(fid)
 
         await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "running"})
         await self.sio.emit("task_run:started", {"id": run_id, "task_id": task_id})
@@ -197,12 +191,23 @@ class Orchestrator:
             cfg.container_name = f"agentflow-{run['id'][:12]}"
         return cfg
 
-    async def _build_prompt_with_context(self, db, task_id: str, base_prompt: str) -> str:
-        """Prepend upstream task outputs to the prompt for inter-task data passing."""
+    async def _build_prompt_with_context(self, db, task_id: str, base_prompt: str,
+                                         flow_run_id: Optional[str] = None) -> str:
+        """Prepend upstream task outputs to the prompt for inter-task data passing.
+
+        Output is taken from the upstream's successful run in the same flow run.
+        Partial flow runs (and legacy runs with no flow run) fall back to the
+        upstream's global latest success.
+        """
         upstream_deps = await db_deps.get_upstream_with_config(db, task_id)
 
         if not upstream_deps:
             return base_prompt
+
+        partial = True  # legacy runs behave like partial: global fallback
+        if flow_run_id:
+            flow_run = await db_flow_runs.get_by_id(db, flow_run_id)
+            partial = bool(flow_run and flow_run.get("partial"))
 
         context_sections = []
         for dep in upstream_deps:
@@ -213,7 +218,12 @@ class Orchestrator:
             if not pass_output:
                 continue
 
-            latest_run = await db_task_runs.get_latest_successful(db, upstream_task_id)
+            latest_run = None
+            if flow_run_id:
+                latest_run = await db_task_runs.get_latest_successful_in_flow_run(
+                    db, upstream_task_id, flow_run_id)
+            if not latest_run and partial:
+                latest_run = await db_task_runs.get_latest_successful(db, upstream_task_id)
             if not latest_run:
                 continue
 
@@ -239,6 +249,7 @@ class Orchestrator:
 
     async def _execute_run(self, run_id: str, run: dict):
         task_id = run["task_id"]
+        flow_run_id = run.get("flow_run_id")
         work_dir = run["work_dir"] or os.getcwd()
         model = run["model"] or "claude-sonnet-4-20250514"
         base_prompt = run["prompt"]
@@ -256,7 +267,8 @@ class Orchestrator:
             # Resolve effective sandbox config: task-level → global default.
             db = await get_db()
             try:
-                prompt = await self._build_prompt_with_context(db, task_id, base_prompt)
+                prompt = await self._build_prompt_with_context(db, task_id, base_prompt,
+                                                               flow_run_id)
                 sandbox_cfg = await self._resolve_sandbox(db, run)
                 if sandbox_cfg.enabled:
                     await db_task_runs.set_sandbox(db, run_id,
@@ -341,12 +353,12 @@ class Orchestrator:
                     result_text = await db_output.get_result_text(run_id, max_chars=8000)
                     if result_text.strip():
                         await db_xcom.insert(db, run_id, task_id, "return_value", result_text)
-                    await self._cascade_trigger_downstream(db, task_id)
+                    await self._cascade_trigger_downstream(db, task_id, flow_run_id)
                 else:
                     # Check if auto-retry is configured
                     notify_retried = await self._maybe_auto_retry(db, run_id, task_id)
                     if not notify_retried:
-                        await self._cascade_cancel_downstream(db, task_id)
+                        await self._cascade_cancel_downstream(db, task_id, flow_run_id)
 
                 await db.commit()
 
@@ -365,8 +377,10 @@ class Orchestrator:
                     except Exception:
                         logger.exception("per-run notification failed for run=%s", run_id)
 
-                # Flow-level notification if this was the last task
-                await self._check_flow_completion(db, task_id)
+                # Close out the flow run if this was its last active task
+                if flow_run_id:
+                    await self._finalize_flow_run(db, flow_run_id)
+                    await db.commit()
             finally:
                 await db.close()
 
@@ -388,7 +402,7 @@ class Orchestrator:
                 await db_task_runs.set_failed(db, run_id, elapsed, error_msg)
                 retried = await self._maybe_auto_retry(db, run_id, task_id)
                 if not retried:
-                    await self._cascade_cancel_downstream(db, task_id)
+                    await self._cascade_cancel_downstream(db, task_id, flow_run_id)
                 await db.commit()
 
                 if not retried:
@@ -406,7 +420,9 @@ class Orchestrator:
                         except Exception:
                             logger.exception("per-run notification failed for run=%s", run_id)
 
-                    await self._check_flow_completion(db, task_id)
+                    if flow_run_id:
+                        await self._finalize_flow_run(db, flow_run_id)
+                        await db.commit()
             finally:
                 await db.close()
 
@@ -421,46 +437,54 @@ class Orchestrator:
             self.running_providers.pop(run_id, None)
 
     async def _maybe_auto_retry(self, db: aiosqlite.Connection, failed_run_id: str, task_id: str) -> bool:
-        """Check if the failed run should be auto-retried. Returns True if a retry was queued."""
+        """Queue a delayed retry for the failed run if configured. Returns True
+        if one was queued.
+
+        The retry run is inserted immediately with a future ``not_before`` and
+        the dispatcher skips it until then — so pending retries survive a
+        backend restart and keep their flow run open."""
         task = await db_tasks.get_retry_config(db, task_id)
         if not task or not task["max_retries"] or task["max_retries"] <= 0:
             return False
 
-        run = await db_task_runs.get_attempt_number(db, failed_run_id)
-        attempt = run["attempt_number"] if run and run["attempt_number"] else 1
+        failed_run = await db_task_runs.get_by_id(db, failed_run_id)
+        attempt = (failed_run["attempt_number"] if failed_run and failed_run["attempt_number"] else 1)
 
         if attempt >= task["max_retries"]:
             logger.warning("run=%s task=%s exhausted retries (%d/%d)",
                            failed_run_id, task_id, attempt, task["max_retries"])
             return False
 
-        # Schedule a retry
         delay = task["retry_delay_seconds"] or 10
-        logger.info("scheduling retry attempt=%d for run=%s task=%s in %ds",
-                     attempt + 1, failed_run_id, task_id, delay)
-        asyncio.create_task(self._delayed_retry(task_id, failed_run_id, attempt + 1, delay))
+        run_number = await db_task_runs.next_run_number(db, task_id)
+        run_id = str(uuid.uuid4())
+
+        logger.info("queuing retry attempt=%d for run=%s task=%s in %ds",
+                    attempt + 1, failed_run_id, task_id, delay)
+        await db_task_runs.insert(db, run_id, task_id, run_number,
+                                  trigger="retry", attempt_number=attempt + 1,
+                                  retry_of_run_id=failed_run_id,
+                                  flow_run_id=failed_run["flow_run_id"] if failed_run else None,
+                                  not_before_seconds=delay)
+
+        await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "queued"})
+        await self.sio.emit("task_run:started", {"id": run_id, "task_id": task_id, "trigger": "retry"})
         return True
 
-    async def _delayed_retry(self, task_id: str, failed_run_id: str, attempt: int, delay: int):
-        """Wait for delay then queue a retry run."""
-        await asyncio.sleep(delay)
-        db = await get_db()
-        try:
-            run_number = await db_task_runs.next_run_number(db, task_id)
-            run_id = str(uuid.uuid4())
-
-            await db_task_runs.insert(db, run_id, task_id, run_number,
-                                      trigger="retry", attempt_number=attempt,
-                                      retry_of_run_id=failed_run_id)
-            await db.commit()
-
-            await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "queued"})
-            await self.sio.emit("task_run:started", {"id": run_id, "task_id": task_id, "trigger": "retry"})
-        finally:
-            await db.close()
+    async def _reopen_flow_run_if_terminal(self, db, flow_run_id: Optional[str]):
+        """A manual retry of a member task brings its finished flow run back to running."""
+        if not flow_run_id:
+            return
+        flow_run = await db_flow_runs.get_by_id(db, flow_run_id)
+        if flow_run and flow_run["status"] in ("success", "failed", "cancelled"):
+            await db_flow_runs.reopen(db, flow_run_id)
+            await self.sio.emit("flow_run:started", {**flow_run, "status": "running"})
 
     async def retry_task_run(self, task_id: str):
-        """Manually retry the latest failed run for a task, then cascade downstream."""
+        """Manually retry the latest failed run for a task, then cascade downstream.
+
+        The retry joins the failed run's flow run (reopening it if finished),
+        like clearing a task instance within an Airflow DAG run."""
         db = await get_db()
         try:
             last_run = await db_task_runs.get_latest(db, task_id)
@@ -469,10 +493,13 @@ class Orchestrator:
 
             retry_of = last_run["id"] if last_run else None
             attempt = (last_run["attempt_number"] + 1) if last_run and last_run["attempt_number"] else 1
+            flow_run_id = last_run["flow_run_id"] if last_run else None
 
+            await self._reopen_flow_run_if_terminal(db, flow_run_id)
             await db_task_runs.insert(db, run_id, task_id, run_number,
                                       trigger="retry", attempt_number=attempt,
-                                      retry_of_run_id=retry_of)
+                                      retry_of_run_id=retry_of,
+                                      flow_run_id=flow_run_id)
             await db.commit()
 
             await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "queued"})
@@ -494,10 +521,13 @@ class Orchestrator:
                 run_id = str(uuid.uuid4())
 
                 retry_of = last_run["id"] if last_run else None
+                flow_run_id = last_run["flow_run_id"] if last_run else None
 
+                await self._reopen_flow_run_if_terminal(db, flow_run_id)
                 await db_task_runs.insert(db, run_id, task_id, run_number,
                                           trigger="retry",
-                                          retry_of_run_id=retry_of)
+                                          retry_of_run_id=retry_of,
+                                          flow_run_id=flow_run_id)
                 created_runs.append({"id": run_id, "task_id": task_id, "run_number": run_number})
                 await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "queued"})
 
@@ -506,58 +536,89 @@ class Orchestrator:
         finally:
             await db.close()
 
-    async def _check_flow_completion(self, db: aiosqlite.Connection, task_id: str) -> None:
-        """If the task's flow has no more active runs, emit a flow completion notification."""
-        task_row = await db_tasks.get_by_id(db, task_id)
-        if not task_row:
-            return
-        flow_id = dict(task_row).get("flow_id")
-        if not flow_id or flow_id in self._flow_complete_notified:
+    async def _finalize_flow_run(self, db: aiosqlite.Connection, flow_run_id: str) -> None:
+        """Close out a flow run once none of its member runs are queued/running.
+
+        Status is success iff every member task's latest attempt succeeded.
+        Pending delayed retries are queued members, so they keep the run open."""
+        flow_run = await db_flow_runs.get_by_id(db, flow_run_id)
+        if not flow_run or flow_run["status"] != "running":
             return
 
-        active = await db_task_runs.get_active_by_flow(db, flow_id)
-        if active:
+        if await db_flow_runs.count_unfinished_members(db, flow_run_id) > 0:
             return
 
-        # Count per-task latest-run statuses to determine overall outcome.
-        cursor = await db.execute(
-            """SELECT tr.status
-               FROM tasks t
-               LEFT JOIN task_runs tr ON tr.id = (
-                   SELECT id FROM task_runs
-                   WHERE task_id = t.id
-                   ORDER BY run_number DESC LIMIT 1
-               )
-               WHERE t.flow_id = ?""",
-            (flow_id,),
-        )
-        statuses = [row[0] for row in await cursor.fetchall()]
-        if not statuses or all(s is None for s in statuses):
-            return  # flow has no runs yet — nothing to notify
+        statuses = await db_flow_runs.latest_task_statuses(db, flow_run_id)
+        if not statuses:
+            return  # nothing has run yet (e.g. roots not created) — keep it open
 
         total = len(statuses)
         failed = sum(1 for s in statuses if s in ("failed", "cancelled"))
+        status = "failed" if failed > 0 else "success"
 
-        flow = await db_flows.get_by_id(db, flow_id)
-        flow_name = (flow or {}).get("name") or flow_id[:8]
+        await db_flow_runs.set_finished(db, flow_run_id, status)
+        logger.info("flow_run=%s finalized status=%s (%d/%d tasks failed)",
+                    flow_run_id, status, failed, total)
 
+        await self.sio.emit("flow_run:finished", {
+            "id": flow_run_id,
+            "flow_id": flow_run["flow_id"],
+            "status": status,
+        })
+
+        flow = await db_flows.get_by_id(db, flow_run["flow_id"])
+        flow_name = (flow or {}).get("name") or flow_run["flow_id"][:8]
         try:
             await notify_flow_completed(
                 db, self.sio,
-                flow_id=flow_id,
+                flow_id=flow_run["flow_id"],
                 flow_name=flow_name,
                 failed=failed > 0,
                 total_tasks=total,
                 failed_tasks=failed,
             )
-            await db.commit()
-            self._flow_complete_notified.add(flow_id)
         except Exception:
-            logger.exception("flow completion notification failed for flow=%s", flow_id)
+            logger.exception("flow completion notification failed for flow_run=%s", flow_run_id)
 
-    async def _cascade_trigger_downstream(self, db: aiosqlite.Connection, completed_task_id: str):
-        """When a task run succeeds, check downstream tasks and queue runs if all deps are met."""
+    async def _check_flow_run_lifecycle(self):
+        """Poll-cycle pass: promote queued flow runs with capacity, and sweep
+        running flow runs whose members all finished (self-healing if a
+        finalize was missed, e.g. across a restart)."""
+        db = await get_db()
+        try:
+            await self._promote_queued_flow_runs(db)
+
+            for flow_run in await db_flow_runs.get_running(db):
+                await self._finalize_flow_run(db, flow_run["id"])
+            await db.commit()
+        finally:
+            await db.close()
+
+    async def _promote_queued_flow_runs(self, db: aiosqlite.Connection):
+        """Start the oldest queued flow run of each flow with free capacity."""
+        for flow_run in await db_flow_runs.get_promotable_queued(db):
+            runs = await db_flow_runs.promote(db, flow_run)
+            await db.commit()
+            logger.info("promoted queued flow_run=%s flow=%s, %d root tasks",
+                        flow_run["id"], flow_run["flow_id"], len(runs))
+
+            await self.sio.emit("flow_run:started", {**flow_run, "status": "running"})
+            for run in runs:
+                await self.sio.emit("task_run:started",
+                                    {"id": run["id"], "task_id": run["task_id"],
+                                     "flow_run_id": flow_run["id"]})
+
+    async def _cascade_trigger_downstream(self, db: aiosqlite.Connection,
+                                          completed_task_id: str,
+                                          flow_run_id: Optional[str] = None):
+        """When a task run succeeds, queue downstream runs in the same flow run
+        once all their upstream deps are met within it."""
         downstream_tasks = await db_deps.get_downstream(db, completed_task_id)
+
+        partial = False
+        if flow_run_id:
+            flow_run = await db_flow_runs.get_by_id(db, flow_run_id)
+            partial = bool(flow_run and flow_run.get("partial"))
 
         for row in downstream_tasks:
             downstream_id = row["task_id"]
@@ -567,30 +628,36 @@ class Orchestrator:
             if not task or dict(task).get("status") != "active":
                 continue
 
-            # Check all upstream deps have a successful latest run
-            unmet_deps = await db_deps.get_unmet_upstream(db, downstream_id)
+            # Check all upstream deps are met (scoped to this flow run)
+            if flow_run_id:
+                unmet_deps = await db_deps.get_unmet_upstream_in_flow_run(
+                    db, downstream_id, flow_run_id, partial)
+            else:
+                unmet_deps = await db_deps.get_unmet_upstream(db, downstream_id)
             if unmet_deps:
                 logger.debug("task=%s has unmet deps, skipping cascade", downstream_id)
                 continue
 
-            # Check no queued/running run already exists for this task
-            if await db_task_runs.has_active_run(db, downstream_id):
+            # Check no queued/running run already exists in this flow run
+            if await db_task_runs.has_active_run(db, downstream_id, flow_run_id):
                 continue
 
             # All deps met — create a queued run
             run_number = await db_task_runs.next_run_number(db, downstream_id)
             run_id = str(uuid.uuid4())
 
-            logger.info("cascade: queuing downstream task=%s (triggered by task=%s)",
-                        downstream_id, completed_task_id)
+            logger.info("cascade: queuing downstream task=%s (triggered by task=%s flow_run=%s)",
+                        downstream_id, completed_task_id, flow_run_id)
             await db_task_runs.insert(db, run_id, downstream_id, run_number,
-                                      trigger="dependency")
+                                      trigger="dependency", flow_run_id=flow_run_id)
 
             await self.sio.emit("task:updated", {"id": downstream_id, "latest_run_status": "queued"})
 
-    async def _cascade_cancel_downstream(self, db: aiosqlite.Connection, failed_task_id: str):
-        """Recursively cancel queued downstream runs when a task fails."""
-        queued_runs = await db_deps.get_queued_downstream(db, failed_task_id)
+    async def _cascade_cancel_downstream(self, db: aiosqlite.Connection,
+                                         failed_task_id: str,
+                                         flow_run_id: Optional[str] = None):
+        """Recursively cancel queued downstream runs (in the same flow run) when a task fails."""
+        queued_runs = await db_deps.get_queued_downstream(db, failed_task_id, flow_run_id)
 
         for row in queued_runs:
             run_id = row["id"]
@@ -601,7 +668,7 @@ class Orchestrator:
             await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "cancelled"})
             await self.sio.emit("task_run:finished", {"id": run_id, "task_id": task_id, "status": "cancelled"})
             # Recurse
-            await self._cascade_cancel_downstream(db, task_id)
+            await self._cascade_cancel_downstream(db, task_id, flow_run_id)
 
     async def cancel_task_run(self, task_id: str):
         """Cancel the latest running/queued run for a task."""
@@ -611,6 +678,7 @@ class Orchestrator:
 
             if run:
                 run_id = run["id"]
+                flow_run_id = run["flow_run_id"]
                 provider = self.running_providers.get(run_id)
                 if provider:
                     logger.info("cancelling task=%s run=%s pid=%s", task_id, run_id, provider.pid)
@@ -623,11 +691,50 @@ class Orchestrator:
                     logger.info("cancelling task=%s run=%s (no active provider)", task_id, run_id)
 
                 await db_task_runs.cancel(db, run_id)
-                await self._cascade_cancel_downstream(db, task_id)
+                await self._cascade_cancel_downstream(db, task_id, flow_run_id)
+                if flow_run_id:
+                    await self._finalize_flow_run(db, flow_run_id)
                 await db.commit()
 
                 await self.sio.emit("task_run:finished", {"id": run_id, "task_id": task_id, "status": "cancelled"})
 
             await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "cancelled"})
+        finally:
+            await db.close()
+
+    async def cancel_flow_run(self, flow_run_id: str):
+        """Cancel a whole flow run: stop running providers, cancel queued/running
+        member runs, and mark the flow run cancelled."""
+        db = await get_db()
+        try:
+            flow_run = await db_flow_runs.get_by_id(db, flow_run_id)
+            if not flow_run:
+                return False
+
+            for member in await db_flow_runs.get_task_runs(db, flow_run_id):
+                if member["status"] not in ("queued", "running"):
+                    continue
+                provider = self.running_providers.pop(member["id"], None)
+                if provider:
+                    try:
+                        await provider.cancel()
+                    except Exception:
+                        pass
+                await db_task_runs.cancel(db, member["id"])
+                await self.sio.emit("task:updated",
+                                    {"id": member["task_id"], "latest_run_status": "cancelled"})
+                await self.sio.emit("task_run:finished",
+                                    {"id": member["id"], "task_id": member["task_id"],
+                                     "status": "cancelled"})
+
+            await db_flow_runs.set_finished(db, flow_run_id, "cancelled")
+            await db.commit()
+
+            await self.sio.emit("flow_run:finished", {
+                "id": flow_run_id,
+                "flow_id": flow_run["flow_id"],
+                "status": "cancelled",
+            })
+            return True
         finally:
             await db.close()

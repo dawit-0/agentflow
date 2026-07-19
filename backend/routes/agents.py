@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from database import get_db
 from db import agents as db_agents, flows as db_flows, tasks as db_tasks
 from db import task_runs as db_task_runs, task_dependencies as db_deps
+from db import flow_runs as db_flow_runs
 from models import AgentCreate, AgentUpdate, SpawnTask, DEFAULT_PERMISSIONS
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -159,7 +160,9 @@ async def spawn_task(agent_id: str, body: SpawnTask):
         run = None
         if body.trigger:
             run_id = str(uuid.uuid4())
-            await db_task_runs.insert(db, run_id, task_id, 1, trigger="manual")
+            flow_run = await db_flow_runs.create_partial(db, flow_id)
+            await db_task_runs.insert(db, run_id, task_id, 1, trigger="manual",
+                                      flow_run_id=flow_run["id"])
             run = {"id": run_id, "task_id": task_id, "run_number": 1}
 
         await db.commit()
