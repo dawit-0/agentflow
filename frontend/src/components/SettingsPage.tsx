@@ -277,6 +277,17 @@ export default function SettingsPage({ onSettingsChanged }: Props = {}) {
                 />
                 <span>Notify when a flow completes</span>
               </label>
+              <label className="settings-checkbox">
+                <input
+                  type="checkbox"
+                  checked={settings.notify_on_approval_needed}
+                  onChange={(e) =>
+                    updateSetting({ notify_on_approval_needed: e.target.checked })
+                  }
+                  disabled={saving === "notify_on_approval_needed"}
+                />
+                <span>Notify when an approval gate needs a decision</span>
+              </label>
             </div>
             <div className="settings-field">
               <label className="settings-label">Desktop notifications</label>

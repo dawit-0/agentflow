@@ -12,6 +12,7 @@ from typing import Optional
 import aiosqlite
 
 from db import tasks as db_tasks, task_runs as db_task_runs
+from models import initial_run_status
 
 # Statuses of a member task's latest attempt within a flow run, as a
 # correlated subquery fragment reused by the rollup queries below.
@@ -57,7 +58,7 @@ async def list_by_flow(db: aiosqlite.Connection, flow_id: str) -> list[dict]:
                (SELECT COUNT(*) FROM task_runs tr WHERE tr.flow_run_id = fr.id
                   AND tr.status IN ('failed', 'cancelled') AND {_LATEST_ATTEMPT_FILTER}) AS failed_tasks,
                (SELECT COUNT(*) FROM task_runs tr WHERE tr.flow_run_id = fr.id
-                  AND tr.status IN ('queued', 'running') AND {_LATEST_ATTEMPT_FILTER}) AS active_tasks
+                  AND tr.status IN ('queued', 'running', 'awaiting_approval') AND {_LATEST_ATTEMPT_FILTER}) AS active_tasks
             FROM flow_runs fr WHERE fr.flow_id = ?
             ORDER BY fr.run_number DESC""",
         (flow_id,),
@@ -90,9 +91,12 @@ async def latest_task_statuses(db: aiosqlite.Connection, flow_run_id: str) -> li
 
 
 async def count_unfinished_members(db: aiosqlite.Connection, flow_run_id: str) -> int:
-    """Queued/running member runs — a queued retry with a future not_before counts."""
+    """Queued/running member runs — a queued retry with a future not_before
+    counts, and so does a pending approval gate (it's blocked on a human, not
+    finished)."""
     cursor = await db.execute(
-        "SELECT COUNT(*) FROM task_runs WHERE flow_run_id = ? AND status IN ('queued', 'running')",
+        """SELECT COUNT(*) FROM task_runs WHERE flow_run_id = ?
+           AND status IN ('queued', 'running', 'awaiting_approval')""",
         (flow_run_id,),
     )
     return (await cursor.fetchone())[0]
@@ -176,15 +180,21 @@ async def delete_by_flow(db: aiosqlite.Connection, flow_id: str) -> None:
 
 async def insert_root_runs(db: aiosqlite.Connection, flow_id: str,
                            flow_run_id: str, trigger: str) -> list[dict]:
-    """Queue a run for every root task of the flow, attached to the flow run."""
+    """Queue a run for every root task of the flow, attached to the flow run.
+
+    A root task that's an approval gate starts straight in
+    'awaiting_approval' — it never runs an agent, it just waits on a human."""
     created = []
     for task_row in await db_tasks.get_root_tasks(db, flow_id):
         task_id = task_row["id"]
+        status = initial_run_status(task_row.get("task_type"))
         run_number = await db_task_runs.next_run_number(db, task_id)
         run_id = str(uuid.uuid4())
         await db_task_runs.insert(db, run_id, task_id, run_number,
-                                  trigger=trigger, flow_run_id=flow_run_id)
-        created.append({"id": run_id, "task_id": task_id, "run_number": run_number})
+                                  trigger=trigger, flow_run_id=flow_run_id,
+                                  status=status)
+        created.append({"id": run_id, "task_id": task_id, "run_number": run_number,
+                        "status": status})
     return created
 
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { api, Task, Flow, Model, Permissions, PERMISSION_PRESETS } from "../api";
+import { api, Task, Flow, Model, Permissions, PERMISSION_PRESETS, TaskType } from "../api";
 import { TaskPrefill } from "../App";
 
 interface Props {
@@ -36,6 +36,7 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
   const [title, setTitle] = useState(prefill?.title || "");
   const [prompt, setPrompt] = useState(prefill?.prompt || "");
   const [model, setModel] = useState(prefill?.model || FALLBACK_MODELS[0].value);
+  const [taskType, setTaskType] = useState<TaskType>("agent");
 
   useEffect(() => {
     api.models.list().then(setModels).catch(() => {});
@@ -68,6 +69,8 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
 
   const isSpawn = !!prefill?.agentId;
   const isQuickTask = prefill?.flowId === "__new__";
+  const canBeApprovalGate = !isSpawn && !isQuickTask;
+  const isApproval = canBeApprovalGate && taskType === "approval";
 
   // Determine the flow: either from selectedFlow (adding task to flow) or auto-create for quick task
   const resolvedFlowId = selectedFlow || prefill?.flowId || "";
@@ -81,7 +84,7 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!prompt.trim() || !title.trim()) return;
+    if (!title.trim() || (!isApproval && !prompt.trim())) return;
     setSubmitting(true);
     try {
       let finalFlowId = resolvedFlowId;
@@ -122,6 +125,7 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
           max_retries: maxRetries > 0 ? maxRetries : undefined,
           retry_delay_seconds: maxRetries > 0 ? retryDelay : undefined,
           sandbox: sandboxValue,
+          task_type: canBeApprovalGate ? taskType : undefined,
         } as Parameters<typeof api.tasks.create>[0]);
 
         // Trigger immediately if requested and no schedule
@@ -141,11 +145,12 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
   function getSubmitLabel() {
     if (submitting) return "Creating...";
     if (isSpawn) return triggerNow ? "Spawn & Run" : "Spawn Task";
+    if (isApproval) return "Create Approval Gate";
     if (hasSchedule) return "Create Scheduled Task";
     return triggerNow ? "Create & Run" : "Create Task";
   }
 
-  const isValid = prompt.trim() && title.trim();
+  const isValid = title.trim() && (isApproval || prompt.trim());
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -175,15 +180,49 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
             />
           </div>
 
+          {canBeApprovalGate && (
+            <div className="form-group">
+              <label>Task Type</label>
+              <div className="permission-presets">
+                <button
+                  type="button"
+                  className={`btn btn-sm permission-preset-btn${taskType === "agent" ? " active" : ""}`}
+                  onClick={() => setTaskType("agent")}
+                >
+                  Agent
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm permission-preset-btn${taskType === "approval" ? " active" : ""}`}
+                  onClick={() => setTaskType("approval")}
+                >
+                  Approval Gate
+                </button>
+              </div>
+              <p className="permission-description">
+                {isApproval
+                  ? "Pauses the flow here until a human approves or rejects — no agent runs."
+                  : "Runs an agent with the prompt below."}
+              </p>
+            </div>
+          )}
+
           <div className="form-group">
-            <label>Prompt</label>
+            <label>{isApproval ? "Approval Notes (optional)" : "Prompt"}</label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder={isSpawn ? "Describe the specific task..." : "Detailed instructions for the agent..."}
+              placeholder={
+                isApproval
+                  ? "What should the approver check before continuing?"
+                  : isSpawn
+                  ? "Describe the specific task..."
+                  : "Detailed instructions for the agent..."
+              }
             />
           </div>
 
+          {!isApproval && (
           <div className="form-group">
             <label>Schedule (optional)</label>
             <div className="schedule-toggle">
@@ -221,7 +260,9 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
               </div>
             )}
           </div>
+          )}
 
+          {!isApproval && (
           <div className="form-group">
             <label>Auto-Retry on Failure (optional)</label>
             <div className="retry-config">
@@ -262,6 +303,7 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
               </p>
             )}
           </div>
+          )}
 
           {!hasSchedule && (
             <div className="form-group">
@@ -276,6 +318,8 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
             </div>
           )}
 
+          {!isApproval && (
+          <>
           <div className="form-group">
             <label>Model</label>
             <select value={model} onChange={(e) => setModel(e.target.value)}>
@@ -304,6 +348,8 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
               placeholder="/path/to/project"
             />
           </div>
+          </>
+          )}
 
           {flowTasks.length > 0 && (
             <div className="form-group">
@@ -360,6 +406,8 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
             </div>
           )}
 
+          {!isApproval && (
+          <>
           <div className="form-group">
             <label>Permissions</label>
             <div className="permission-presets">
@@ -439,6 +487,8 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
                 : "Inherits the global Sandbox setting."}
             </p>
           </div>
+          </>
+          )}
 
           <div className="form-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose}>

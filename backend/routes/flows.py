@@ -122,6 +122,10 @@ async def retry_flow(flow_id: str):
         created = await db_flow_runs.create_for_flow(db, flow_id, trigger="retry")
 
         await db.commit()
+
+        from main import orchestrator
+        await orchestrator.notify_pending_approvals(created["runs"])
+
         return {"retried": len(created["runs"]), "runs": created["runs"],
                 "flow_run": created["flow_run"]}
     finally:
@@ -148,6 +152,10 @@ async def trigger_flow(flow_id: str):
         created = await db_flow_runs.create_for_flow(db, flow_id, trigger="manual")
 
         await db.commit()
+
+        from main import orchestrator
+        await orchestrator.notify_pending_approvals(created["runs"])
+
         return {"triggered": len(created["runs"]), "runs": created["runs"],
                 "flow_run": created["flow_run"]}
     finally:

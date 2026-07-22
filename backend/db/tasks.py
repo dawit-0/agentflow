@@ -33,15 +33,15 @@ async def insert(db: aiosqlite.Connection, task_id: str, title: str, prompt: str
                  agent_id: Optional[str], permissions_json: str,
                  schedule: Optional[str], next_run_at: Optional[str],
                  max_retries: int, retry_delay_seconds: int,
-                 sandbox: str = "") -> None:
+                 sandbox: str = "", task_type: str = "agent") -> None:
     await db.execute(
         """INSERT INTO tasks (id, title, prompt, model, priority, work_dir, flow_id,
                               agent_id, permissions, schedule, next_run_at,
-                              max_retries, retry_delay_seconds, sandbox)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                              max_retries, retry_delay_seconds, sandbox, task_type)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (task_id, title, prompt, model, priority, work_dir, flow_id,
          agent_id, permissions_json, schedule, next_run_at,
-         max_retries, retry_delay_seconds, sandbox),
+         max_retries, retry_delay_seconds, sandbox, task_type),
     )
 
 
@@ -94,7 +94,7 @@ async def get_dag_nodes(db: aiosqlite.Connection,
     if flow_id:
         cursor = await db.execute(
             """SELECT t.id, t.title, t.status, t.model, t.schedule, t.max_retries, t.retry_delay_seconds,
-                      t.created_at, t.updated_at,
+                      t.task_type, t.created_at, t.updated_at,
                       tr.status as latest_run_status, tr.run_number as latest_run_number,
                       tr.attempt_number, tr.trigger as latest_run_trigger
                FROM tasks t
@@ -107,7 +107,7 @@ async def get_dag_nodes(db: aiosqlite.Connection,
     else:
         cursor = await db.execute(
             """SELECT t.id, t.title, t.status, t.model, t.schedule, t.max_retries, t.retry_delay_seconds,
-                      t.created_at, t.updated_at,
+                      t.task_type, t.created_at, t.updated_at,
                       tr.status as latest_run_status, tr.run_number as latest_run_number,
                       tr.attempt_number, tr.trigger as latest_run_trigger
                FROM tasks t
@@ -140,7 +140,7 @@ async def update_schedule_times(db: aiosqlite.Connection, task_id: str,
 
 async def get_root_tasks(db: aiosqlite.Connection, flow_id: str) -> list[dict]:
     cursor = await db.execute(
-        """SELECT t.id FROM tasks t
+        """SELECT t.id, t.task_type FROM tasks t
            WHERE t.flow_id = ? AND t.status = 'active'
            AND NOT EXISTS (
                SELECT 1 FROM task_dependencies td WHERE td.task_id = t.id
@@ -172,7 +172,7 @@ async def get_retry_config(db: aiosqlite.Connection, task_id: str) -> Optional[a
 
 async def get_resumable_failed_tasks(db: aiosqlite.Connection, flow_id: str) -> list[dict]:
     cursor = await db.execute(
-        """SELECT t.id FROM tasks t
+        """SELECT t.id, t.task_type FROM tasks t
            JOIN task_runs tr ON tr.task_id = t.id AND tr.run_number = (
                SELECT MAX(run_number) FROM task_runs WHERE task_id = t.id
            )

@@ -11,12 +11,18 @@ export interface TaskNodeData {
   maxRetries: number;
   attemptNumber: number | null;
   latestRunTrigger: string | null;
+  taskType: string;
   [key: string]: unknown;
 }
 
+function statusLabel(status: string): string {
+  return status === "awaiting_approval" ? "needs approval" : status;
+}
+
 function TaskNode({ data }: NodeProps) {
-  const { title, latestRunStatus, model, schedule, maxRetries, attemptNumber, latestRunTrigger } =
+  const { title, latestRunStatus, model, schedule, maxRetries, attemptNumber, latestRunTrigger, taskType } =
     data as unknown as TaskNodeData;
+  const isApproval = taskType === "approval";
   const displayStatus = latestRunStatus || "idle";
   const statusClass = displayStatus === "cancelled" ? "cancelled" : displayStatus;
   const modelShort = ((model as string) || "")
@@ -29,10 +35,15 @@ function TaskNode({ data }: NodeProps) {
   const hasAutoRetry = maxRetries > 0;
 
   return (
-    <div className={`flow-node flow-node-${statusClass}`}>
+    <div className={`flow-node flow-node-${statusClass}${isApproval ? " flow-node-approval" : ""}`}>
       <Handle type="target" position={Position.Top} className="flow-handle" />
       <div className="flow-node-header">
         <span className="flow-node-title">
+          {isApproval && (
+            <span className="approval-badge-sm" title="Approval gate — waits for a human decision">
+              &#x2713;{" "}
+            </span>
+          )}
           {schedule && (
             <span className="schedule-badge-sm" title={`Schedule: ${schedule}`}>
               &#x23f0;{" "}
@@ -40,10 +51,10 @@ function TaskNode({ data }: NodeProps) {
           )}
           {title as string}
         </span>
-        <span className={`flow-node-status ${statusClass}`}>{displayStatus as string}</span>
+        <span className={`flow-node-status ${statusClass}`}>{statusLabel(displayStatus as string)}</span>
       </div>
       <div className="flow-node-meta">
-        {modelShort}
+        {isApproval ? "approval gate" : modelShort}
         {hasAutoRetry && (
           <span className="flow-node-retry-badge" title={`Auto-retry: up to ${maxRetries}x`}>
             &#x21bb; {maxRetries}x

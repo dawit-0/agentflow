@@ -260,6 +260,16 @@ input, textarea, select {
   background: rgba(239, 68, 68, 0.08);
 }
 
+.btn-approve {
+  background: transparent;
+  color: var(--success);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.btn-approve:hover {
+  background: rgba(34, 197, 94, 0.08);
+}
+
 .btn-sm {
   height: 28px;
   padding: 0 10px;
@@ -457,6 +467,11 @@ input, textarea, select {
 .status-pill.cancelled {
   background: rgba(113, 113, 122, 0.12);
   color: var(--text-muted);
+}
+
+.status-pill.awaiting_approval {
+  background: rgba(245, 158, 11, 0.14);
+  color: var(--warning);
 }
 
 .task-card-meta {
@@ -1806,6 +1821,19 @@ input, textarea, select {
   border-color: var(--queued);
 }
 
+.flow-node-awaiting_approval {
+  border-color: var(--warning);
+}
+
+.flow-node-approval {
+  border-style: dashed;
+}
+
+.approval-badge-sm {
+  color: var(--warning);
+  font-size: 0.75rem;
+}
+
 .flow-node-header {
   display: flex;
   align-items: center;
@@ -1864,6 +1892,12 @@ input, textarea, select {
 .flow-node-status.cancelled {
   background: rgba(113, 113, 122, 0.12);
   color: var(--text-muted);
+}
+
+.flow-node-status.awaiting_approval {
+  background: rgba(245, 158, 11, 0.14);
+  color: var(--warning);
+  animation: pulse 2s ease-in-out infinite;
 }
 
 .flow-node-meta {
@@ -2279,6 +2313,15 @@ input, textarea, select {
   gap: 4px;
 }
 
+.flow-detail-approval-banner {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: var(--warning);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 0.8rem;
+}
+
 .flow-detail-error-pre {
   background: rgba(239, 68, 68, 0.06);
   border: 1px solid rgba(239, 68, 68, 0.2);
@@ -2626,6 +2669,7 @@ input, textarea, select {
 .run-pill-dot.cancelled { background: var(--text-muted); }
 .run-pill-dot.running { background: var(--success); }
 .run-pill-dot.queued { background: var(--text-muted); }
+.run-pill-dot.awaiting_approval { background: var(--warning); }
 
 .task-detail-run-meta {
   display: flex;

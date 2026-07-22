@@ -6,7 +6,7 @@ from typing import Optional
 import aiosqlite
 
 
-VALID_KINDS = {"task_failed", "task_succeeded", "flow_completed", "flow_failed"}
+VALID_KINDS = {"task_failed", "task_succeeded", "flow_completed", "flow_failed", "approval_needed"}
 VALID_SEVERITIES = {"info", "warning", "error"}
 
 

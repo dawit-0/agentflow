@@ -8,7 +8,8 @@ from db import tasks as db_tasks, task_runs as db_task_runs, flows as db_flows
 from db import task_dependencies as db_deps, task_run_output as db_output
 from db import questions as db_questions, task_xcom as db_xcom
 from db import flow_runs as db_flow_runs
-from models import TaskCreate, TaskUpdate, TaskTrigger, DependencyAdd, QuickTaskCreate, DEFAULT_PERMISSIONS
+from models import (TaskCreate, TaskUpdate, TaskTrigger, DependencyAdd, QuickTaskCreate,
+                     DEFAULT_PERMISSIONS, initial_run_status)
 import cron as cron_parser
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -155,7 +156,7 @@ async def create_task(body: TaskCreate):
                                body.priority, body.work_dir, flow_id, body.agent_id,
                                permissions_json, body.schedule, next_run_at,
                                body.max_retries, body.retry_delay_seconds,
-                               sandbox=body.sandbox or "")
+                               sandbox=body.sandbox or "", task_type=body.task_type)
 
         for dep_id in depends_on:
             if dep_id != task_id:
@@ -164,14 +165,24 @@ async def create_task(body: TaskCreate):
                                                   max_output_chars=body.max_output_chars)
 
         # Trigger immediately if requested and no schedule
+        approval_run = None
         if body.trigger and not body.schedule:
             run_id = str(uuid.uuid4())
             flow_run = await db_flow_runs.create_partial(db, flow_id)
+            status = initial_run_status(body.task_type)
             await db_task_runs.insert(db, run_id, task_id, 1, trigger="manual",
-                                      flow_run_id=flow_run["id"])
+                                      flow_run_id=flow_run["id"], status=status)
+            if status == "awaiting_approval":
+                approval_run = run_id
 
         await db.commit()
         row = await db_tasks.get_by_id(db, task_id)
+
+        if approval_run:
+            from main import orchestrator
+            await orchestrator.notify_pending_approvals(
+                [{"id": approval_run, "task_id": task_id, "status": "awaiting_approval"}])
+
         return _parse_task_row(row)
     finally:
         await db.close()
@@ -239,17 +250,25 @@ async def trigger_task(task_id: str, body: TaskTrigger = None):
         row = await db_tasks.get_by_id(db, task_id)
         if not row:
             return JSONResponse({"error": "task not found"}, status_code=404)
+        task = dict(row)
 
         run_number = await db_task_runs.next_run_number(db, task_id)
         run_id = str(uuid.uuid4())
+        status = initial_run_status(task.get("task_type"))
 
         # A single-task trigger is a mid-graph execution: its own partial flow run
-        flow_run = await db_flow_runs.create_partial(db, dict(row)["flow_id"])
+        flow_run = await db_flow_runs.create_partial(db, task["flow_id"])
         await db_task_runs.insert(db, run_id, task_id, run_number, trigger="manual",
-                                  flow_run_id=flow_run["id"])
+                                  flow_run_id=flow_run["id"], status=status)
         await db.commit()
 
         run = await db_task_runs.get_by_id(db, run_id)
+
+        if status == "awaiting_approval":
+            from main import orchestrator
+            await orchestrator.notify_pending_approvals(
+                [{"id": run_id, "task_id": task_id, "status": "awaiting_approval"}])
+
         return dict(run)
     finally:
         await db.close()
@@ -260,6 +279,19 @@ async def retry_task(task_id: str):
     """Retry the latest failed run for this task."""
     from main import orchestrator
     result = await orchestrator.retry_task_run(task_id)
+    return result
+
+
+@router.post("/{task_id}/approve")
+async def approve_task(task_id: str):
+    """Approve a pending approval-gate task, cascading to its downstream tasks.
+
+    To reject, use the existing cancel endpoint — it already cancels a
+    pending run and cascades cancellation downstream."""
+    from main import orchestrator
+    result = await orchestrator.approve_task_run(task_id)
+    if result is None:
+        return JSONResponse({"error": "no pending approval for this task"}, status_code=400)
     return result
 
 

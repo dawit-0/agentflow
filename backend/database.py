@@ -75,6 +75,7 @@ async def init_db():
                 last_run_at TEXT,
                 max_retries INTEGER DEFAULT 0,
                 retry_delay_seconds INTEGER DEFAULT 10,
+                task_type TEXT DEFAULT 'agent',
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             );
@@ -105,7 +106,7 @@ async def init_db():
                 task_id TEXT NOT NULL REFERENCES tasks(id),
                 run_number INTEGER NOT NULL,
                 trigger TEXT DEFAULT 'manual' CHECK(trigger IN ('manual','schedule','dependency','retry')),
-                status TEXT DEFAULT 'queued' CHECK(status IN ('queued','running','success','failed','cancelled')),
+                status TEXT DEFAULT 'queued' CHECK(status IN ('queued','running','success','failed','cancelled','awaiting_approval')),
                 pid INTEGER,
                 exit_code INTEGER,
                 cost_usd REAL DEFAULT 0,
@@ -173,6 +174,7 @@ async def init_db():
             ("flows", "max_active_runs", "ALTER TABLE flows ADD COLUMN max_active_runs INTEGER DEFAULT 1"),
             ("task_runs", "flow_run_id", "ALTER TABLE task_runs ADD COLUMN flow_run_id TEXT REFERENCES flow_runs(id)"),
             ("task_runs", "not_before", "ALTER TABLE task_runs ADD COLUMN not_before TEXT"),
+            ("tasks", "task_type", "ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'agent'"),
         ]:
             try:
                 await db.execute(ddl)
@@ -189,5 +191,76 @@ async def init_db():
         except Exception:
             pass
 
+        await _migrate_task_runs_approval_status(db)
+
     finally:
         await db.close()
+
+
+async def _migrate_task_runs_approval_status(db: aiosqlite.Connection) -> None:
+    """Add 'awaiting_approval' to task_runs.status, for approval-gate tasks.
+
+    SQLite can't alter a CHECK constraint in place, so an existing table is
+    rebuilt (SQLite's documented ALTER-table-via-rename procedure). Fresh
+    databases already get the new constraint from the CREATE TABLE above and
+    are skipped here.
+    """
+    cursor = await db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='task_runs'"
+    )
+    row = await cursor.fetchone()
+    if not row or not row[0] or "awaiting_approval" in row[0]:
+        return
+
+    # Only carry over columns that actually exist on this DB's task_runs —
+    # very old databases may predate columns added by earlier migrations
+    # (sandbox, flow_run_id, ...); anything missing just gets the new
+    # table's column default.
+    old_cols_cursor = await db.execute("PRAGMA table_info(task_runs)")
+    old_cols = {r[1] for r in await old_cols_cursor.fetchall()}
+    full_columns = [
+        "id", "task_id", "run_number", "trigger", "status", "pid", "exit_code",
+        "cost_usd", "duration_ms", "num_turns", "started_at", "finished_at",
+        "error_message", "attempt_number", "retry_of_run_id", "flow_run_id",
+        "not_before", "sandbox", "container_name",
+    ]
+    carry_over = ", ".join(c for c in full_columns if c in old_cols)
+
+    await db.execute("PRAGMA foreign_keys=OFF")
+    try:
+        await db.execute("ALTER TABLE task_runs RENAME TO task_runs_old")
+        await db.execute("""
+            CREATE TABLE task_runs (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL REFERENCES tasks(id),
+                run_number INTEGER NOT NULL,
+                trigger TEXT DEFAULT 'manual' CHECK(trigger IN ('manual','schedule','dependency','retry')),
+                status TEXT DEFAULT 'queued' CHECK(status IN ('queued','running','success','failed','cancelled','awaiting_approval')),
+                pid INTEGER,
+                exit_code INTEGER,
+                cost_usd REAL DEFAULT 0,
+                duration_ms INTEGER DEFAULT 0,
+                num_turns INTEGER DEFAULT 0,
+                started_at TEXT DEFAULT (datetime('now')),
+                finished_at TEXT,
+                error_message TEXT,
+                attempt_number INTEGER DEFAULT 1,
+                retry_of_run_id TEXT REFERENCES task_runs(id),
+                flow_run_id TEXT REFERENCES flow_runs(id),
+                not_before TEXT,
+                sandbox TEXT,
+                container_name TEXT,
+                UNIQUE(task_id, run_number)
+            )
+        """)
+        await db.execute(
+            f"INSERT INTO task_runs ({carry_over}) SELECT {carry_over} FROM task_runs_old"
+        )
+        await db.execute("DROP TABLE task_runs_old")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_runs_started ON task_runs(started_at)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_runs_status_started ON task_runs(status, started_at)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_runs_task_status ON task_runs(task_id, status)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_runs_flow_run ON task_runs(flow_run_id, status)")
+        await db.commit()
+    finally:
+        await db.execute("PRAGMA foreign_keys=ON")
