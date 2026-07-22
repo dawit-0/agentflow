@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Literal, Optional
 
 
 PERMISSION_PRESETS = {
@@ -31,6 +31,17 @@ PERMISSION_PRESETS = {
 
 DEFAULT_PERMISSIONS = PERMISSION_PRESETS["standard"]
 
+TaskType = Literal["agent", "approval"]
+
+
+def initial_run_status(task_type: Optional[str]) -> str:
+    """The status a fresh run should start in, given its task's type.
+
+    Approval-gate tasks never invoke a provider — they wait on a human
+    decision instead of being picked up by the dispatcher's 'queued' poll.
+    """
+    return "awaiting_approval" if task_type == "approval" else "queued"
+
 
 class TaskCreate(BaseModel):
     title: str
@@ -49,6 +60,7 @@ class TaskCreate(BaseModel):
     retry_delay_seconds: int = 10
     trigger: bool = False
     sandbox: Optional[str] = None
+    task_type: TaskType = "agent"
 
 
 class TaskUpdate(BaseModel):
@@ -65,6 +77,7 @@ class TaskUpdate(BaseModel):
     max_retries: Optional[int] = None
     retry_delay_seconds: Optional[int] = None
     sandbox: Optional[str] = None
+    task_type: Optional[TaskType] = None
 
 
 class TaskTrigger(BaseModel):

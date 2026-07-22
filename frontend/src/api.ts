@@ -44,6 +44,8 @@ export const PERMISSION_PRESETS: Record<string, Permissions> = {
   },
 };
 
+export type TaskType = "agent" | "approval";
+
 export interface Task {
   id: string;
   title: string;
@@ -60,6 +62,7 @@ export interface Task {
   next_run_at: string | null;
   last_run_at: string | null;
   sandbox: string;
+  task_type: TaskType;
   created_at: string;
   updated_at: string;
   latest_run?: TaskRun | null;
@@ -70,7 +73,7 @@ export interface TaskRun {
   task_id: string;
   run_number: number;
   trigger: "manual" | "schedule" | "dependency" | "retry";
-  status: "queued" | "running" | "success" | "failed" | "cancelled";
+  status: "queued" | "running" | "success" | "failed" | "cancelled" | "awaiting_approval";
   pid: number | null;
   exit_code: number | null;
   cost_usd: number;
@@ -123,6 +126,7 @@ export interface DagNode {
   schedule: string | null;
   max_retries: number;
   retry_delay_seconds: number;
+  task_type: TaskType;
   latest_run_status: string | null;
   latest_run_number: number | null;
   attempt_number: number | null;
@@ -199,6 +203,7 @@ export interface Settings {
   notify_on_task_failure: boolean;
   notify_on_task_success: boolean;
   notify_on_flow_completion: boolean;
+  notify_on_approval_needed: boolean;
   notify_desktop_enabled: boolean;
   notify_sound_enabled: boolean;
   default_sandbox: "" | "docker";
@@ -254,7 +259,8 @@ export type NotificationKind =
   | "task_failed"
   | "task_succeeded"
   | "flow_completed"
-  | "flow_failed";
+  | "flow_failed"
+  | "approval_needed";
 
 export interface AppNotification {
   id: string;
@@ -312,6 +318,7 @@ export const api = {
       max_retries?: number;
       retry_delay_seconds?: number;
       sandbox?: string;
+      task_type?: TaskType;
     }) => request<Task>("/tasks", { method: "POST", body: JSON.stringify(data) }),
     update: (
       id: string,
@@ -327,6 +334,7 @@ export const api = {
         schedule: string;
         schedule_enabled: boolean;
         sandbox: string;
+        task_type: TaskType;
       }>
     ) =>
       request<Task>(`/tasks/${id}`, {
@@ -340,6 +348,11 @@ export const api = {
     retry: (id: string) =>
       request<{ id: string; task_id: string; run_number: number }>(
         `/tasks/${id}/retry`,
+        { method: "POST" }
+      ),
+    approve: (id: string) =>
+      request<{ id: string; task_id: string; status: string } | { error: string }>(
+        `/tasks/${id}/approve`,
         { method: "POST" }
       ),
     delete: (id: string) =>

@@ -12,6 +12,7 @@ interface Props {
   onDelete: (id: string) => void;
   onTrigger: (id: string) => void;
   onRetryTask: (id: string) => void;
+  onApprove: (id: string) => void;
 }
 
 function formatTimestamp(iso: string): string {
@@ -76,6 +77,7 @@ export default function TaskDetailPage({
   onDelete,
   onTrigger,
   onRetryTask,
+  onApprove,
 }: Props) {
   const [task, setTask] = useState<Task | null>(null);
   const [runs, setRuns] = useState<TaskRun[]>([]);
@@ -231,6 +233,7 @@ export default function TaskDetailPage({
 
   const selectedRun = runs[selectedRunIdx] || null;
   const displayStatus = selectedRun?.status || task.latest_run?.status || "idle";
+  const isAwaitingApproval = displayStatus === "awaiting_approval";
   const isRunning = displayStatus === "running" || displayStatus === "queued";
   const isFailed = displayStatus === "failed" || displayStatus === "cancelled";
 
@@ -248,10 +251,22 @@ export default function TaskDetailPage({
             &larr; Back
           </button>
           <h2 className="task-detail-title">{task.title}</h2>
-          <span className={`status-pill ${displayStatus}`}>{displayStatus}</span>
+          <span className={`status-pill ${displayStatus}`}>
+            {isAwaitingApproval ? "needs approval" : displayStatus}
+          </span>
         </div>
         <div className="task-detail-header-actions">
-          {isRunning && (
+          {isAwaitingApproval && (
+            <>
+              <button className="btn btn-sm btn-approve" onClick={() => onApprove(taskId)}>
+                &#x2713; Approve
+              </button>
+              <button className="btn btn-sm btn-danger" onClick={() => onCancel(taskId)}>
+                &#x2715; Reject
+              </button>
+            </>
+          )}
+          {!isAwaitingApproval && isRunning && (
             <button className="btn btn-sm btn-danger" onClick={() => onCancel(taskId)}>
               Cancel
             </button>
@@ -261,7 +276,7 @@ export default function TaskDetailPage({
               &#x21bb; Retry
             </button>
           )}
-          {!isRunning && (
+          {!isRunning && !isAwaitingApproval && (
             <button className="btn btn-sm btn-primary" onClick={() => onTrigger(taskId)}>
               Trigger
             </button>
@@ -274,7 +289,11 @@ export default function TaskDetailPage({
 
       {/* Meta row */}
       <div className="task-detail-meta">
-        <span className="task-detail-meta-item">{task.model}</span>
+        {task.task_type === "approval" ? (
+          <span className="task-detail-meta-item">Approval gate</span>
+        ) : (
+          <span className="task-detail-meta-item">{task.model}</span>
+        )}
         {task.schedule && (
           <span className="task-detail-meta-item">Schedule: {task.schedule}</span>
         )}

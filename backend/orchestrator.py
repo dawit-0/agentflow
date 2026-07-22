@@ -15,8 +15,8 @@ from db import task_run_output as db_output, task_dependencies as db_deps
 from db import task_xcom as db_xcom, flow_runs as db_flow_runs
 from db import settings as db_settings
 from logging_config import get_logger, task_logger
-from models import DEFAULT_PERMISSIONS
-from notifications import maybe_notify_run_finished, notify_flow_completed
+from models import DEFAULT_PERMISSIONS, initial_run_status
+from notifications import maybe_notify_run_finished, notify_flow_completed, notify_approval_needed
 from providers.sandbox import SandboxConfig
 
 logger = get_logger("orchestrator")
@@ -75,23 +75,28 @@ class Orchestrator:
                 task_id = task["id"]
                 run_number = await db_task_runs.next_run_number(db, task_id)
                 run_id = str(uuid.uuid4())
+                status = initial_run_status(task.get("task_type"))
 
-                logger.info("schedule triggered task=%s", task_id)
+                logger.info("schedule triggered task=%s status=%s", task_id, status)
                 # A task-level schedule is a mid-graph execution: partial flow run
                 flow_run = await db_flow_runs.create_partial(db, task["flow_id"],
                                                              trigger="schedule")
                 await db_task_runs.insert(db, run_id, task_id, run_number,
                                           trigger="schedule",
-                                          flow_run_id=flow_run["id"])
+                                          flow_run_id=flow_run["id"],
+                                          status=status)
 
                 # Advance next_run_at
                 next_run = cron_parser.next_run_after(task["schedule"], now)
                 next_run_str = next_run.strftime("%Y-%m-%dT%H:%M:%SZ")
 
                 await db_tasks.update_schedule_times(db, task_id, now_str, next_run_str)
+
+                if status == "awaiting_approval":
+                    await self._notify_approval_needed(db, dict(task), run_id)
                 await db.commit()
 
-                await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "queued"})
+                await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": status})
                 await self.sio.emit("task_run:started", {"id": run_id, "task_id": task_id, "trigger": "schedule"})
         finally:
             await db.close()
@@ -115,9 +120,12 @@ class Orchestrator:
 
                 await self.sio.emit("flow_run:started", flow_run)
                 for run in created["runs"]:
+                    status = run.get("status", "queued")
                     await self.sio.emit("task_run:started",
                                         {"id": run["id"], "task_id": run["task_id"],
-                                         "trigger": "schedule", "flow_run_id": flow_run["id"]})
+                                         "trigger": "schedule", "flow_run_id": flow_run["id"],
+                                         "status": status})
+                await self.notify_pending_approvals(created["runs"])
 
                 # Advance next_run_at for the flow
                 next_run = cron_parser.next_run_after(flow["schedule"], now)
@@ -487,6 +495,9 @@ class Orchestrator:
         like clearing a task instance within an Airflow DAG run."""
         db = await get_db()
         try:
+            task_row = await db_tasks.get_by_id(db, task_id)
+            status = initial_run_status(dict(task_row).get("task_type") if task_row else None)
+
             last_run = await db_task_runs.get_latest(db, task_id)
             run_number = await db_task_runs.next_run_number(db, task_id)
             run_id = str(uuid.uuid4())
@@ -499,10 +510,12 @@ class Orchestrator:
             await db_task_runs.insert(db, run_id, task_id, run_number,
                                       trigger="retry", attempt_number=attempt,
                                       retry_of_run_id=retry_of,
-                                      flow_run_id=flow_run_id)
+                                      flow_run_id=flow_run_id, status=status)
+            if status == "awaiting_approval" and task_row:
+                await self._notify_approval_needed(db, dict(task_row), run_id)
             await db.commit()
 
-            await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "queued"})
+            await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": status})
             return {"id": run_id, "task_id": task_id, "run_number": run_number}
         finally:
             await db.close()
@@ -516,6 +529,7 @@ class Orchestrator:
 
             for task_row in tasks_to_retry:
                 task_id = task_row["id"]
+                status = initial_run_status(task_row.get("task_type"))
                 last_run = await db_task_runs.get_latest(db, task_id)
                 run_number = await db_task_runs.next_run_number(db, task_id)
                 run_id = str(uuid.uuid4())
@@ -527,11 +541,13 @@ class Orchestrator:
                 await db_task_runs.insert(db, run_id, task_id, run_number,
                                           trigger="retry",
                                           retry_of_run_id=retry_of,
-                                          flow_run_id=flow_run_id)
-                created_runs.append({"id": run_id, "task_id": task_id, "run_number": run_number})
-                await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "queued"})
+                                          flow_run_id=flow_run_id, status=status)
+                created_runs.append({"id": run_id, "task_id": task_id, "run_number": run_number,
+                                     "status": status})
+                await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": status})
 
             await db.commit()
+            await self.notify_pending_approvals(created_runs)
             return {"retried": len(created_runs), "runs": created_runs}
         finally:
             await db.close()
@@ -606,7 +622,8 @@ class Orchestrator:
             for run in runs:
                 await self.sio.emit("task_run:started",
                                     {"id": run["id"], "task_id": run["task_id"],
-                                     "flow_run_id": flow_run["id"]})
+                                     "flow_run_id": flow_run["id"], "status": run.get("status", "queued")})
+            await self.notify_pending_approvals(runs)
 
     async def _cascade_trigger_downstream(self, db: aiosqlite.Connection,
                                           completed_task_id: str,
@@ -627,6 +644,7 @@ class Orchestrator:
             task = await db_tasks.get_by_id(db, downstream_id)
             if not task or dict(task).get("status") != "active":
                 continue
+            task = dict(task)
 
             # Check all upstream deps are met (scoped to this flow run)
             if flow_run_id:
@@ -638,20 +656,25 @@ class Orchestrator:
                 logger.debug("task=%s has unmet deps, skipping cascade", downstream_id)
                 continue
 
-            # Check no queued/running run already exists in this flow run
+            # Check no queued/running/awaiting-approval run already exists in this flow run
             if await db_task_runs.has_active_run(db, downstream_id, flow_run_id):
                 continue
 
-            # All deps met — create a queued run
+            # All deps met — create the next run
             run_number = await db_task_runs.next_run_number(db, downstream_id)
             run_id = str(uuid.uuid4())
+            status = initial_run_status(task.get("task_type"))
 
-            logger.info("cascade: queuing downstream task=%s (triggered by task=%s flow_run=%s)",
-                        downstream_id, completed_task_id, flow_run_id)
+            logger.info("cascade: queuing downstream task=%s (triggered by task=%s flow_run=%s) status=%s",
+                        downstream_id, completed_task_id, flow_run_id, status)
             await db_task_runs.insert(db, run_id, downstream_id, run_number,
-                                      trigger="dependency", flow_run_id=flow_run_id)
+                                      trigger="dependency", flow_run_id=flow_run_id,
+                                      status=status)
 
-            await self.sio.emit("task:updated", {"id": downstream_id, "latest_run_status": "queued"})
+            await self.sio.emit("task:updated", {"id": downstream_id, "latest_run_status": status})
+
+            if status == "awaiting_approval":
+                await self._notify_approval_needed(db, task, run_id)
 
     async def _cascade_cancel_downstream(self, db: aiosqlite.Connection,
                                          failed_task_id: str,
@@ -736,5 +759,55 @@ class Orchestrator:
                 "status": "cancelled",
             })
             return True
+        finally:
+            await db.close()
+
+    async def _notify_approval_needed(self, db: aiosqlite.Connection, task: dict, run_id: str) -> None:
+        try:
+            await notify_approval_needed(db, self.sio, task=task, task_run_id=run_id)
+        except Exception:
+            logger.exception("approval-needed notification failed for run=%s", run_id)
+
+    async def notify_pending_approvals(self, runs: list[dict]) -> None:
+        """Given freshly-created runs (as returned by flow_runs.insert_root_runs /
+        create_for_flow / promote), notify for any that landed in
+        'awaiting_approval'. Used by call sites that create root task runs
+        outside of the cascade path (schedule triggers, manual flow trigger/retry)."""
+        pending = [r for r in runs if r.get("status") == "awaiting_approval"]
+        if not pending:
+            return
+        db = await get_db()
+        try:
+            for run in pending:
+                task_row = await db_tasks.get_by_id(db, run["task_id"])
+                if task_row:
+                    await self._notify_approval_needed(db, dict(task_row), run["id"])
+            await db.commit()
+        finally:
+            await db.close()
+
+    async def approve_task_run(self, task_id: str) -> Optional[dict]:
+        """Approve a pending approval-gate task: resolve it as successful and
+        cascade to its downstream tasks, same as a successful agent run."""
+        db = await get_db()
+        try:
+            run = await db_task_runs.get_active_run(db, task_id)
+            if not run or run["status"] != "awaiting_approval":
+                return None
+
+            run_id = run["id"]
+            flow_run_id = run["flow_run_id"]
+
+            await db_task_runs.approve(db, run_id)
+            await self._cascade_trigger_downstream(db, task_id, flow_run_id)
+
+            if flow_run_id:
+                await self._finalize_flow_run(db, flow_run_id)
+
+            await db.commit()
+
+            await self.sio.emit("task_run:finished", {"id": run_id, "task_id": task_id, "status": "success"})
+            await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "success"})
+            return {"id": run_id, "task_id": task_id, "status": "success"}
         finally:
             await db.close()

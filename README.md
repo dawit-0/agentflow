@@ -31,6 +31,7 @@ Open **http://localhost:5173**.
 
 - **Tasks** — Run an agent with a prompt, model, working directory, and permissions. Track status, duration, cost, and full output per run.
 - **Flows** — Group tasks into a DAG with dependencies. Cascading execution on success, cascading cancellation on failure, rendered as an interactive graph.
+- **Approval Gates** — A special task type that pauses a flow for a human decision instead of running an agent. Downstream tasks stay blocked until someone approves (cascade continues) or rejects (cascade cancels) — a human-in-the-loop checkpoint before risky or high-stakes steps.
 - **Agents** — Reusable templates bundling instructions, attached context (files / URLs / text), and default settings.
 - **Scheduling** — Cron-based triggers on tasks or flows, with common presets (hourly, daily, weekdays, weekly, monthly).
 - **Permissions** — Per-agent tool access: Read Only, Standard, or Full Access (enforced via Claude CLI `--allowedTools`).

@@ -108,6 +108,11 @@ export default function App() {
     loadTasks();
   }
 
+  async function handleApprove(id: string) {
+    await api.tasks.approve(id);
+    loadTasks();
+  }
+
   async function handleRetryFlow(id: string) {
     await api.flows.retry(id);
     loadTasks();
@@ -206,6 +211,7 @@ export default function App() {
               onDelete={handleDelete}
               onTrigger={handleTrigger}
               onRetryTask={handleRetryTask}
+              onApprove={handleApprove}
             />
           ) : view === "settings" ? (
             <SettingsPage onSettingsChanged={setSettings} />
@@ -239,6 +245,7 @@ export default function App() {
               onRetryTask={handleRetryTask}
               onRetryFlow={handleRetryFlow}
               onResumeFlow={handleResumeFlow}
+              onApprove={handleApprove}
               onViewTaskDetail={setSelectedTaskDetail}
             />
           ) : (

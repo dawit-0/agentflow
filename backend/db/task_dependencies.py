@@ -150,13 +150,14 @@ async def get_unmet_upstream_in_flow_run(db: aiosqlite.Connection, task_id: str,
 
 async def get_queued_downstream(db: aiosqlite.Connection, task_id: str,
                                 flow_run_id: Optional[str] = None) -> list[dict]:
-    """Get queued runs for tasks that depend on the given task, scoped to one
-    flow run when given so a failure can't cancel another run's tasks."""
+    """Get queued (or awaiting-approval) runs for tasks that depend on the
+    given task, scoped to one flow run when given so a failure can't cancel
+    another run's tasks."""
     if flow_run_id:
         cursor = await db.execute(
             """SELECT DISTINCT tr.id, tr.task_id FROM task_runs tr
                JOIN task_dependencies td ON td.task_id = tr.task_id
-               WHERE td.depends_on_task_id = ? AND tr.status = 'queued'
+               WHERE td.depends_on_task_id = ? AND tr.status IN ('queued', 'awaiting_approval')
                AND tr.flow_run_id = ?""",
             (task_id, flow_run_id),
         )
@@ -164,7 +165,7 @@ async def get_queued_downstream(db: aiosqlite.Connection, task_id: str,
         cursor = await db.execute(
             """SELECT DISTINCT tr.id, tr.task_id FROM task_runs tr
                JOIN task_dependencies td ON td.task_id = tr.task_id
-               WHERE td.depends_on_task_id = ? AND tr.status = 'queued'""",
+               WHERE td.depends_on_task_id = ? AND tr.status IN ('queued', 'awaiting_approval')""",
             (task_id,),
         )
     return [dict(r) for r in await cursor.fetchall()]

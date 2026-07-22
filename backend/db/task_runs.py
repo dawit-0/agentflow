@@ -113,6 +113,14 @@ async def cancel(db: aiosqlite.Connection, run_id: str) -> None:
     )
 
 
+async def approve(db: aiosqlite.Connection, run_id: str) -> None:
+    """Resolve an approval-gate run as approved — equivalent to a successful run."""
+    await db.execute(
+        "UPDATE task_runs SET status = 'success', finished_at = datetime('now') WHERE id = ?",
+        (run_id,),
+    )
+
+
 async def cancel_by_flow(db: aiosqlite.Connection, flow_id: str) -> None:
     await db.execute(
         """UPDATE task_runs SET status = 'cancelled', finished_at = datetime('now')
@@ -229,7 +237,9 @@ async def get_latest_successful_in_flow_run(db: aiosqlite.Connection, task_id: s
 
 async def get_active_run(db: aiosqlite.Connection, task_id: str) -> Optional[aiosqlite.Row]:
     cursor = await db.execute(
-        "SELECT * FROM task_runs WHERE task_id = ? AND status IN ('running', 'queued') ORDER BY run_number DESC LIMIT 1",
+        """SELECT * FROM task_runs WHERE task_id = ?
+           AND status IN ('running', 'queued', 'awaiting_approval')
+           ORDER BY run_number DESC LIMIT 1""",
         (task_id,),
     )
     return await cursor.fetchone()
@@ -242,12 +252,14 @@ async def has_active_run(db: aiosqlite.Connection, task_id: str,
     if flow_run_id:
         cursor = await db.execute(
             """SELECT id FROM task_runs
-               WHERE task_id = ? AND flow_run_id = ? AND status IN ('queued', 'running')""",
+               WHERE task_id = ? AND flow_run_id = ?
+               AND status IN ('queued', 'running', 'awaiting_approval')""",
             (task_id, flow_run_id),
         )
     else:
         cursor = await db.execute(
-            "SELECT id FROM task_runs WHERE task_id = ? AND status IN ('queued', 'running')",
+            """SELECT id FROM task_runs WHERE task_id = ?
+               AND status IN ('queued', 'running', 'awaiting_approval')""",
             (task_id,),
         )
     return await cursor.fetchone() is not None

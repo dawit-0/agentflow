@@ -11,6 +11,7 @@ interface Props {
   onDelete: (id: string) => void;
   onTrigger: (id: string) => void;
   onRetryTask: (id: string) => void;
+  onApprove: (id: string) => void;
   onNodeSelect: (id: string) => void;
   onViewDetail: (id: string) => void;
 }
@@ -25,6 +26,7 @@ export default function FlowDetailPanel({
   onDelete,
   onTrigger,
   onRetryTask,
+  onApprove,
   onNodeSelect,
   onViewDetail,
 }: Props) {
@@ -52,6 +54,7 @@ export default function FlowDetailPanel({
 
   const nodeMap = new Map(allNodes.map((n) => [n.id, n]));
   const displayStatus = node.latest_run_status || "idle";
+  const isAwaitingApproval = displayStatus === "awaiting_approval";
   const isRunning = displayStatus === "running" || displayStatus === "queued";
   const isFailed = displayStatus === "failed" || displayStatus === "cancelled";
 
@@ -63,10 +66,22 @@ export default function FlowDetailPanel({
       </div>
 
       <div className="flow-detail-status-row">
-        <span className={`status-pill ${displayStatus}`}>{displayStatus}</span>
-        <span className="flow-detail-model">{node.model}</span>
+        <span className={`status-pill ${displayStatus}`}>
+          {isAwaitingApproval ? "needs approval" : displayStatus}
+        </span>
+        {node.task_type === "approval" ? (
+          <span className="flow-detail-model">approval gate</span>
+        ) : (
+          <span className="flow-detail-model">{node.model}</span>
+        )}
         {node.schedule && <span className="flow-detail-schedule">{node.schedule}</span>}
       </div>
+
+      {isAwaitingApproval && (
+        <div className="flow-detail-approval-banner">
+          This flow is paused here until you approve or reject this step.
+        </div>
+      )}
 
       {latestRun && (
         <div className="flow-detail-timing">
@@ -162,7 +177,17 @@ export default function FlowDetailPanel({
       )}
 
       <div className="flow-detail-actions">
-        {isRunning && (
+        {isAwaitingApproval && (
+          <>
+            <button className="btn btn-sm btn-approve" onClick={() => onApprove(node.id)}>
+              &#x2713; Approve
+            </button>
+            <button className="btn btn-sm btn-danger" onClick={() => onCancel(node.id)}>
+              &#x2715; Reject
+            </button>
+          </>
+        )}
+        {!isAwaitingApproval && isRunning && (
           <button className="btn btn-sm btn-danger" onClick={() => onCancel(node.id)}>
             Cancel
           </button>
@@ -176,7 +201,7 @@ export default function FlowDetailPanel({
             &#x21bb; Retry
           </button>
         )}
-        {!isRunning && (
+        {!isRunning && !isAwaitingApproval && (
           <button className="btn btn-sm btn-primary" onClick={() => onTrigger(node.id)}>
             Trigger
           </button>

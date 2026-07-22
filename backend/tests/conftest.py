@@ -97,6 +97,7 @@ async def _init_test_db():
                 max_retries INTEGER DEFAULT 0,
                 retry_delay_seconds INTEGER DEFAULT 10,
                 sandbox TEXT DEFAULT '',
+                task_type TEXT DEFAULT 'agent',
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             );
@@ -114,7 +115,7 @@ async def _init_test_db():
                 task_id TEXT NOT NULL REFERENCES tasks(id),
                 run_number INTEGER NOT NULL,
                 trigger TEXT DEFAULT 'manual' CHECK(trigger IN ('manual','schedule','dependency','retry')),
-                status TEXT DEFAULT 'queued' CHECK(status IN ('queued','running','success','failed','cancelled')),
+                status TEXT DEFAULT 'queued' CHECK(status IN ('queued','running','success','failed','cancelled','awaiting_approval')),
                 pid INTEGER,
                 exit_code INTEGER,
                 cost_usd REAL DEFAULT 0,
