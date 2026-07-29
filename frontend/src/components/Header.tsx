@@ -2,7 +2,7 @@ import React from "react";
 import { AppNotification } from "../api";
 import NotificationBell from "./NotificationBell";
 
-export type HeaderView = "flows" | "agents" | "settings" | "dashboard" | "notifications";
+export type HeaderView = "flows" | "agents" | "settings" | "dashboard" | "notifications" | "approvals";
 
 interface Props {
   view: HeaderView;
@@ -13,6 +13,7 @@ interface Props {
   onMarkAllNotificationsRead: () => void;
   onSelectTaskFromNotification?: (taskId: string) => void;
   onViewAllNotifications: () => void;
+  pendingApprovalCount: number;
 }
 
 export default function Header({
@@ -24,6 +25,7 @@ export default function Header({
   onMarkAllNotificationsRead,
   onSelectTaskFromNotification,
   onViewAllNotifications,
+  pendingApprovalCount,
 }: Props) {
   return (
     <header className="header">
@@ -64,6 +66,15 @@ export default function Header({
             onClick={() => onViewChange("agents")}
           >
             Agent Registry
+          </button>
+          <button
+            className={`header-tab${view === "approvals" ? " active" : ""}`}
+            onClick={() => onViewChange("approvals")}
+          >
+            Approvals
+            {pendingApprovalCount > 0 && (
+              <span className="header-tab-badge">{pendingApprovalCount}</span>
+            )}
           </button>
         </div>
       </div>

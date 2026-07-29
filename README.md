@@ -37,6 +37,7 @@ Open **http://localhost:5173**.
 - **Sandbox** — Optional Docker isolation per run: disposable container, bind-mounted work directory, restricted network, resource caps. See [Sandbox mode](#sandbox-mode).
 - **Analytics** — Built-in dashboard for run volume, success rate, cost, and top failing tasks.
 - **Notifications** — In-app alerts for run completion, failures, and schedule events.
+- **Approval Gates** — Flag a task "Require approval before each run" and every run — scheduled, cascaded, or manual — pauses until someone approves or rejects it from the Approvals page. See [Approval gates](#approval-gates).
 
 ## Models
 
@@ -96,3 +97,25 @@ are auto-removed on exit (`docker run --rm`).
 
 **Note:** OpenAI tasks bypass the sandbox — they make HTTP calls only and have
 no local filesystem access to isolate.
+
+## Approval gates
+
+Let a human sign off before an agent with real permissions (`bash`, `file_write`, ...)
+actually runs, instead of finding out after the fact.
+
+**Enable:** check "Require approval before each run" when creating a task.
+
+**What happens:** every queued run of that task — manual trigger, cron
+schedule, or cascaded from an upstream dependency — pauses with status
+`awaiting_approval` instead of dispatching. It shows up on the **Approvals**
+tab (with a pending-count badge) alongside the task's title, flow, model,
+and effective permissions, and triggers a notification.
+
+**Deciding:** Approve resumes the run on the next poll cycle. Reject cancels
+it (with an optional comment recorded as the reason) and cascade-cancels any
+already-queued downstream runs, the same as a normal task failure. Both
+actions take an optional free-text comment, stored alongside the request.
+
+A gated run counts as an active member of its flow run the whole time it's
+pending, so a flow doesn't finalize while a decision is outstanding — and a
+pending approval survives a backend restart, same as a queued retry.

@@ -73,7 +73,8 @@ async def quick_create_task(body: QuickTaskCreate):
                                      body.model, body.work_dir, flow_id,
                                      permissions_json, body.schedule, next_run_at,
                                      body.max_retries, body.retry_delay_seconds,
-                                     sandbox=body.sandbox or "")
+                                     sandbox=body.sandbox or "",
+                                     requires_approval=body.requires_approval)
 
         # Trigger immediately if requested
         if body.trigger and not body.schedule:
@@ -155,7 +156,8 @@ async def create_task(body: TaskCreate):
                                body.priority, body.work_dir, flow_id, body.agent_id,
                                permissions_json, body.schedule, next_run_at,
                                body.max_retries, body.retry_delay_seconds,
-                               sandbox=body.sandbox or "")
+                               sandbox=body.sandbox or "",
+                               requires_approval=body.requires_approval)
 
         for dep_id in depends_on:
             if dep_id != task_id:
@@ -188,6 +190,10 @@ async def update_task(task_id: str, body: TaskUpdate):
         # Handle schedule_enabled as integer
         if "schedule_enabled" in data:
             data["schedule_enabled"] = 1 if data["schedule_enabled"] else 0
+
+        # Handle requires_approval as integer
+        if "requires_approval" in data:
+            data["requires_approval"] = 1 if data["requires_approval"] else 0
 
         # Handle permissions as JSON
         if "permissions" in data:

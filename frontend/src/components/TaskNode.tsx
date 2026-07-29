@@ -11,14 +11,16 @@ export interface TaskNodeData {
   maxRetries: number;
   attemptNumber: number | null;
   latestRunTrigger: string | null;
+  requiresApproval: boolean;
   [key: string]: unknown;
 }
 
 function TaskNode({ data }: NodeProps) {
-  const { title, latestRunStatus, model, schedule, maxRetries, attemptNumber, latestRunTrigger } =
+  const { title, latestRunStatus, model, schedule, maxRetries, attemptNumber, latestRunTrigger, requiresApproval } =
     data as unknown as TaskNodeData;
   const displayStatus = latestRunStatus || "idle";
   const statusClass = displayStatus === "cancelled" ? "cancelled" : displayStatus;
+  const statusLabel = displayStatus === "awaiting_approval" ? "needs approval" : displayStatus;
   const modelShort = ((model as string) || "")
     .replace("claude-", "")
     .replace("-20250514", "")
@@ -38,9 +40,14 @@ function TaskNode({ data }: NodeProps) {
               &#x23f0;{" "}
             </span>
           )}
+          {requiresApproval && (
+            <span className="schedule-badge-sm" title="Requires approval before each run">
+              &#x1f512;{" "}
+            </span>
+          )}
           {title as string}
         </span>
-        <span className={`flow-node-status ${statusClass}`}>{displayStatus as string}</span>
+        <span className={`flow-node-status ${statusClass}`}>{statusLabel}</span>
       </div>
       <div className="flow-node-meta">
         {modelShort}

@@ -60,6 +60,7 @@ export interface Task {
   next_run_at: string | null;
   last_run_at: string | null;
   sandbox: string;
+  requires_approval: boolean;
   created_at: string;
   updated_at: string;
   latest_run?: TaskRun | null;
@@ -85,6 +86,25 @@ export interface TaskRun {
   container_name: string | null;
   flow_run_id: string | null;
   not_before: string | null;
+  approval_status: "pending" | "approved" | "rejected" | null;
+}
+
+export interface PendingApproval {
+  id: string;
+  task_run_id: string;
+  task_id: string;
+  question: string;
+  answer: string | null;
+  status: "pending" | "answered" | "timeout";
+  created_at: string;
+  answered_at: string | null;
+  task_title: string;
+  flow_id: string;
+  flow_name: string | null;
+  model: string;
+  permissions: string;
+  run_trigger: string;
+  run_number: number;
 }
 
 export interface FlowRun {
@@ -123,6 +143,7 @@ export interface DagNode {
   schedule: string | null;
   max_retries: number;
   retry_delay_seconds: number;
+  requires_approval: boolean;
   latest_run_status: string | null;
   latest_run_number: number | null;
   attempt_number: number | null;
@@ -199,6 +220,7 @@ export interface Settings {
   notify_on_task_failure: boolean;
   notify_on_task_success: boolean;
   notify_on_flow_completion: boolean;
+  notify_on_approval_requested: boolean;
   notify_desktop_enabled: boolean;
   notify_sound_enabled: boolean;
   default_sandbox: "" | "docker";
@@ -254,7 +276,8 @@ export type NotificationKind =
   | "task_failed"
   | "task_succeeded"
   | "flow_completed"
-  | "flow_failed";
+  | "flow_failed"
+  | "approval_requested";
 
 export interface AppNotification {
   id: string;
@@ -312,6 +335,7 @@ export const api = {
       max_retries?: number;
       retry_delay_seconds?: number;
       sandbox?: string;
+      requires_approval?: boolean;
     }) => request<Task>("/tasks", { method: "POST", body: JSON.stringify(data) }),
     update: (
       id: string,
@@ -327,6 +351,7 @@ export const api = {
         schedule: string;
         schedule_enabled: boolean;
         sandbox: string;
+        requires_approval: boolean;
       }>
     ) =>
       request<Task>(`/tasks/${id}`, {
@@ -373,6 +398,7 @@ export const api = {
       retry_delay_seconds?: number;
       trigger?: boolean;
       sandbox?: string;
+      requires_approval?: boolean;
     }) => request<Task>("/tasks/quick", { method: "POST", body: JSON.stringify(data) }),
   },
   taskRuns: {
@@ -536,5 +562,18 @@ export const api = {
       request<{ ok: boolean }>(`/notifications/${id}/read`, { method: "POST" }),
     markAllRead: () =>
       request<{ ok: boolean; marked: number }>("/notifications/read_all", { method: "POST" }),
+  },
+  approvals: {
+    listPending: () => request<PendingApproval[]>("/approvals"),
+    approve: (runId: string, comment?: string) =>
+      request<{ id: string; task_id: string; decision: string }>(
+        `/approvals/${runId}/approve`,
+        { method: "POST", body: JSON.stringify({ comment: comment || undefined }) }
+      ),
+    reject: (runId: string, comment?: string) =>
+      request<{ id: string; task_id: string; decision: string }>(
+        `/approvals/${runId}/reject`,
+        { method: "POST", body: JSON.stringify({ comment: comment || undefined }) }
+      ),
   },
 };

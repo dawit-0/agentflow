@@ -49,6 +49,7 @@ class TaskCreate(BaseModel):
     retry_delay_seconds: int = 10
     trigger: bool = False
     sandbox: Optional[str] = None
+    requires_approval: bool = False
 
 
 class TaskUpdate(BaseModel):
@@ -65,6 +66,7 @@ class TaskUpdate(BaseModel):
     max_retries: Optional[int] = None
     retry_delay_seconds: Optional[int] = None
     sandbox: Optional[str] = None
+    requires_approval: Optional[bool] = None
 
 
 class TaskTrigger(BaseModel):
@@ -145,7 +147,12 @@ class QuickTaskCreate(BaseModel):
     retry_delay_seconds: int = 10
     trigger: bool = True
     sandbox: Optional[str] = None
+    requires_approval: bool = False
 
 
 class AnswerCreate(BaseModel):
     answer: str
+
+
+class ApprovalDecision(BaseModel):
+    comment: Optional[str] = None

@@ -13,6 +13,7 @@ import NewFlowModal from "./components/NewFlowModal";
 import SettingsPage from "./components/SettingsPage";
 import DashboardPage from "./components/DashboardPage";
 import NotificationsPage from "./components/NotificationsPage";
+import ApprovalsPage from "./components/ApprovalsPage";
 import { useNotifications } from "./hooks/useNotifications";
 
 export interface TaskPrefill {
@@ -30,7 +31,8 @@ export default function App() {
   const [flows, setFlows] = useState<Flow[]>([]);
   const [selectedFlow, setSelectedFlow] = useState<string | null>(null);
   const [showTaskForm, setShowTaskForm] = useState(false);
-  const [view, setView] = useState<"flows" | "agents" | "settings" | "dashboard" | "notifications">("dashboard");
+  const [view, setView] = useState<"flows" | "agents" | "settings" | "dashboard" | "notifications" | "approvals">("dashboard");
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [showAgentForm, setShowAgentForm] = useState(false);
@@ -54,11 +56,35 @@ export default function App() {
     setAgents(data);
   }, []);
 
+  const loadPendingApprovalCount = useCallback(async () => {
+    try {
+      const list = await api.approvals.listPending();
+      setPendingApprovalCount(list.length);
+    } catch {
+      // Non-fatal: leave previous count in place.
+    }
+  }, []);
+
   useEffect(() => {
     loadTasks();
     loadFlows();
     loadAgents();
-  }, [loadTasks, loadFlows, loadAgents]);
+    loadPendingApprovalCount();
+  }, [loadTasks, loadFlows, loadAgents, loadPendingApprovalCount]);
+
+  // Real-time approval updates
+  useEffect(() => {
+    function onApprovalChange() {
+      loadPendingApprovalCount();
+      loadTasks();
+    }
+    socket.on("approval:requested", onApprovalChange);
+    socket.on("approval:decided", onApprovalChange);
+    return () => {
+      socket.off("approval:requested", onApprovalChange);
+      socket.off("approval:decided", onApprovalChange);
+    };
+  }, [loadPendingApprovalCount, loadTasks]);
 
   // Load settings (theme + notification prefs) on startup
   useEffect(() => {
@@ -166,6 +192,7 @@ export default function App() {
           setView("flows");
         }}
         onViewAllNotifications={() => setView("notifications")}
+        pendingApprovalCount={pendingApprovalCount}
       />
       <div className="main-layout">
         {view === "flows" && selectedFlow && !selectedTaskDetail && (
@@ -213,6 +240,14 @@ export default function App() {
             <DashboardPage onSelectTask={setSelectedTaskDetail} />
           ) : view === "notifications" ? (
             <NotificationsPage
+              onBack={() => setView("dashboard")}
+              onSelectTask={(taskId) => {
+                setSelectedTaskDetail(taskId);
+                setView("flows");
+              }}
+            />
+          ) : view === "approvals" ? (
+            <ApprovalsPage
               onBack={() => setView("dashboard")}
               onSelectTask={(taskId) => {
                 setSelectedTaskDetail(taskId);

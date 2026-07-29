@@ -260,6 +260,16 @@ input, textarea, select {
   background: rgba(239, 68, 68, 0.08);
 }
 
+.btn-success {
+  background: transparent;
+  color: var(--success);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.btn-success:hover {
+  background: rgba(34, 197, 94, 0.1);
+}
+
 .btn-sm {
   height: 28px;
   padding: 0 10px;
@@ -703,6 +713,7 @@ input, textarea, select {
 }
 
 .header-tab {
+  position: relative;
   padding: 5px 14px;
   border-radius: var(--radius-sm);
   font-size: 0.8rem;
@@ -1806,6 +1817,11 @@ input, textarea, select {
   border-color: var(--queued);
 }
 
+.flow-node-awaiting_approval {
+  border-color: var(--warning);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
+}
+
 .flow-node-header {
   display: flex;
   align-items: center;
@@ -1864,6 +1880,12 @@ input, textarea, select {
 .flow-node-status.cancelled {
   background: rgba(113, 113, 122, 0.12);
   color: var(--text-muted);
+}
+
+.flow-node-status.awaiting_approval {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--warning);
+  animation: pulse 2s ease-in-out infinite;
 }
 
 .flow-node-meta {
@@ -3460,6 +3482,88 @@ input, textarea, select {
   color: var(--text-secondary);
   border: 1px dashed var(--border);
   border-radius: var(--radius);
+}
+
+/* ===== Approvals ===== */
+.approvals-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.approval-card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.approval-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.approval-card-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.approval-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.approval-card-question {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.approval-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.approval-comment-input {
+  flex: 1;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+.header-tab-badge {
+  position: absolute;
+  top: 2px;
+  right: -2px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--warning);
+  color: #fff;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* ===== Settings checkbox ===== */
