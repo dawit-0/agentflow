@@ -13,10 +13,10 @@ from database import get_db
 from db import tasks as db_tasks, task_runs as db_task_runs, flows as db_flows
 from db import task_run_output as db_output, task_dependencies as db_deps
 from db import task_xcom as db_xcom, flow_runs as db_flow_runs
-from db import settings as db_settings
+from db import settings as db_settings, questions as db_questions
 from logging_config import get_logger, task_logger
 from models import DEFAULT_PERMISSIONS
-from notifications import maybe_notify_run_finished, notify_flow_completed
+from notifications import maybe_notify_run_finished, notify_flow_completed, notify_approval_requested
 from providers.sandbox import SandboxConfig
 
 logger = get_logger("orchestrator")
@@ -58,6 +58,7 @@ class Orchestrator:
                 await self._check_task_schedules()
                 await self._check_flow_schedules()
                 await self._check_flow_run_lifecycle()
+                await self._check_pending_approvals()
                 await self._dispatch_queued_runs()
             except Exception:
                 logger.exception("poll cycle error")
@@ -142,6 +143,93 @@ class Orchestrator:
                 logger.debug("dispatching %d queued runs", len(runs))
             for run in runs:
                 await self._start_run(db, run)
+        finally:
+            await db.close()
+
+    async def _check_pending_approvals(self):
+        """Gate queued runs whose task requires approval: raise an approval
+        request instead of letting the dispatcher execute them. Runs stay
+        with status='queued' the whole time — approval_status is what the
+        dispatcher actually checks — so a gated run survives a restart and
+        keeps its flow run open, same as a normal queued run."""
+        db = await get_db()
+        try:
+            gated = await db_task_runs.get_pending_approval_gate(db, 50)
+            for run in gated:
+                run_id = run["id"]
+                task_id = run["task_id"]
+                task_title = run.get("task_title") or task_id[:8]
+
+                await db_task_runs.set_approval_status(db, run_id, "pending")
+                question = await db_questions.insert_approval_request(
+                    db, run_id, task_id, f"Approval required to run task '{task_title}'")
+                await db.commit()
+
+                logger.info("run=%s task=%s awaiting approval", run_id, task_id)
+                await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "awaiting_approval"})
+                await self.sio.emit("approval:requested", {
+                    "question_id": question["id"], "task_run_id": run_id, "task_id": task_id,
+                })
+
+                task_row = await db_tasks.get_by_id(db, task_id)
+                if task_row:
+                    try:
+                        await notify_approval_requested(db, self.sio, task=dict(task_row), task_run_id=run_id)
+                        await db.commit()
+                    except Exception:
+                        logger.exception("approval-requested notification failed for run=%s", run_id)
+        finally:
+            await db.close()
+
+    async def approve_run(self, run_id: str, comment: Optional[str] = None) -> Optional[dict]:
+        """Approve a gated run so the dispatcher picks it up on the next poll cycle."""
+        db = await get_db()
+        try:
+            run = await db_task_runs.get_by_id(db, run_id)
+            if not run or run["approval_status"] != "pending":
+                return None
+
+            question = await db_questions.get_by_run(db, run_id)
+            if question:
+                await db_questions.answer(db, question["id"], comment)
+            await db_task_runs.set_approval_status(db, run_id, "approved")
+            await db.commit()
+
+            await self.sio.emit("task:updated", {"id": run["task_id"], "latest_run_status": "queued"})
+            await self.sio.emit("approval:decided", {
+                "task_run_id": run_id, "task_id": run["task_id"], "decision": "approved",
+            })
+            return {"id": run_id, "task_id": run["task_id"], "decision": "approved"}
+        finally:
+            await db.close()
+
+    async def reject_run(self, run_id: str, comment: Optional[str] = None) -> Optional[dict]:
+        """Reject a gated run: cancel it and cascade-cancel its downstream tasks."""
+        db = await get_db()
+        try:
+            run = await db_task_runs.get_by_id(db, run_id)
+            if not run or run["approval_status"] != "pending":
+                return None
+
+            task_id = run["task_id"]
+            flow_run_id = run["flow_run_id"]
+
+            question = await db_questions.get_by_run(db, run_id)
+            if question:
+                await db_questions.answer(db, question["id"], comment)
+            reason = f"Rejected by approver: {comment}" if comment else "Rejected by approver"
+            await db_task_runs.reject(db, run_id, reason)
+            await self._cascade_cancel_downstream(db, task_id, flow_run_id)
+            if flow_run_id:
+                await self._finalize_flow_run(db, flow_run_id)
+            await db.commit()
+
+            await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "cancelled"})
+            await self.sio.emit("task_run:finished", {"id": run_id, "task_id": task_id, "status": "cancelled"})
+            await self.sio.emit("approval:decided", {
+                "task_run_id": run_id, "task_id": task_id, "decision": "rejected",
+            })
+            return {"id": run_id, "task_id": task_id, "decision": "rejected"}
         finally:
             await db.close()
 

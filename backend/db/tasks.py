@@ -33,15 +33,15 @@ async def insert(db: aiosqlite.Connection, task_id: str, title: str, prompt: str
                  agent_id: Optional[str], permissions_json: str,
                  schedule: Optional[str], next_run_at: Optional[str],
                  max_retries: int, retry_delay_seconds: int,
-                 sandbox: str = "") -> None:
+                 sandbox: str = "", requires_approval: bool = False) -> None:
     await db.execute(
         """INSERT INTO tasks (id, title, prompt, model, priority, work_dir, flow_id,
                               agent_id, permissions, schedule, next_run_at,
-                              max_retries, retry_delay_seconds, sandbox)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                              max_retries, retry_delay_seconds, sandbox, requires_approval)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (task_id, title, prompt, model, priority, work_dir, flow_id,
          agent_id, permissions_json, schedule, next_run_at,
-         max_retries, retry_delay_seconds, sandbox),
+         max_retries, retry_delay_seconds, sandbox, 1 if requires_approval else 0),
     )
 
 
@@ -49,15 +49,16 @@ async def insert_quick(db: aiosqlite.Connection, task_id: str, title: str,
                         prompt: str, model: str, work_dir: str, flow_id: str,
                         permissions_json: str, schedule: Optional[str],
                         next_run_at: Optional[str], max_retries: int,
-                        retry_delay_seconds: int, sandbox: str = "") -> None:
+                        retry_delay_seconds: int, sandbox: str = "",
+                        requires_approval: bool = False) -> None:
     await db.execute(
         """INSERT INTO tasks (id, title, prompt, model, work_dir, flow_id,
                               permissions, schedule, next_run_at,
-                              max_retries, retry_delay_seconds, sandbox)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                              max_retries, retry_delay_seconds, sandbox, requires_approval)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (task_id, title, prompt, model, work_dir, flow_id,
          permissions_json, schedule, next_run_at, max_retries,
-         retry_delay_seconds, sandbox),
+         retry_delay_seconds, sandbox, 1 if requires_approval else 0),
     )
 
 
@@ -91,11 +92,13 @@ async def delete_by_flow(db: aiosqlite.Connection, flow_id: str) -> None:
 
 async def get_dag_nodes(db: aiosqlite.Connection,
                          flow_id: Optional[str] = None) -> list[dict]:
+    status_expr = """CASE WHEN tr.approval_status = 'pending' THEN 'awaiting_approval'
+                           ELSE tr.status END"""
     if flow_id:
         cursor = await db.execute(
-            """SELECT t.id, t.title, t.status, t.model, t.schedule, t.max_retries, t.retry_delay_seconds,
-                      t.created_at, t.updated_at,
-                      tr.status as latest_run_status, tr.run_number as latest_run_number,
+            f"""SELECT t.id, t.title, t.status, t.model, t.schedule, t.max_retries, t.retry_delay_seconds,
+                      t.requires_approval, t.created_at, t.updated_at,
+                      {status_expr} as latest_run_status, tr.run_number as latest_run_number,
                       tr.attempt_number, tr.trigger as latest_run_trigger
                FROM tasks t
                LEFT JOIN task_runs tr ON tr.task_id = t.id AND tr.run_number = (
@@ -106,9 +109,9 @@ async def get_dag_nodes(db: aiosqlite.Connection,
         )
     else:
         cursor = await db.execute(
-            """SELECT t.id, t.title, t.status, t.model, t.schedule, t.max_retries, t.retry_delay_seconds,
-                      t.created_at, t.updated_at,
-                      tr.status as latest_run_status, tr.run_number as latest_run_number,
+            f"""SELECT t.id, t.title, t.status, t.model, t.schedule, t.max_retries, t.retry_delay_seconds,
+                      t.requires_approval, t.created_at, t.updated_at,
+                      {status_expr} as latest_run_status, tr.run_number as latest_run_number,
                       tr.attempt_number, tr.trigger as latest_run_trigger
                FROM tasks t
                LEFT JOIN task_runs tr ON tr.task_id = t.id AND tr.run_number = (

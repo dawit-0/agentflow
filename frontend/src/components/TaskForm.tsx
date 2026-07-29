@@ -63,6 +63,9 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
   // Sandbox: "inherit" (use settings default), "" (force host), or "docker"
   const [sandbox, setSandbox] = useState<"inherit" | "" | "docker">("inherit");
 
+  // Require a human to approve each run before it executes
+  const [requiresApproval, setRequiresApproval] = useState(false);
+
   // Whether to trigger immediately
   const [triggerNow, setTriggerNow] = useState(true);
 
@@ -122,6 +125,7 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
           max_retries: maxRetries > 0 ? maxRetries : undefined,
           retry_delay_seconds: maxRetries > 0 ? retryDelay : undefined,
           sandbox: sandboxValue,
+          requires_approval: requiresApproval,
         } as Parameters<typeof api.tasks.create>[0]);
 
         // Trigger immediately if requested and no schedule
@@ -419,6 +423,20 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
                 ))}
               </div>
             )}
+          </div>
+
+          <div className="form-group">
+            <label className="permission-toggle">
+              <input
+                type="checkbox"
+                checked={requiresApproval}
+                onChange={(e) => setRequiresApproval(e.target.checked)}
+              />
+              <span>Require approval before each run</span>
+            </label>
+            <p className="field-hint">
+              Every run of this task pauses until someone approves or rejects it from the Approvals page — useful for tasks with elevated permissions.
+            </p>
           </div>
 
           <div className="form-group">

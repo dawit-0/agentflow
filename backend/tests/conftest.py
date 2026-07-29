@@ -97,6 +97,7 @@ async def _init_test_db():
                 max_retries INTEGER DEFAULT 0,
                 retry_delay_seconds INTEGER DEFAULT 10,
                 sandbox TEXT DEFAULT '',
+                requires_approval INTEGER DEFAULT 0,
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             );
@@ -129,6 +130,7 @@ async def _init_test_db():
                 container_name TEXT,
                 flow_run_id TEXT REFERENCES flow_runs(id),
                 not_before TEXT,
+                approval_status TEXT,
                 UNIQUE(task_id, run_number)
             );
             CREATE INDEX IF NOT EXISTS idx_runs_flow_run ON task_runs(flow_run_id, status);
@@ -243,6 +245,7 @@ async def client():
         patch("routes.agents.get_db", _get_test_db),
         patch("routes.analytics.get_db", _get_test_db),
         patch("routes.notifications.get_db", _get_test_db),
+        patch("routes.approvals.get_db", _get_test_db),
         patch("orchestrator.get_db", _get_test_db),
     ):
         from main import app

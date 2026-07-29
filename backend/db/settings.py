@@ -9,6 +9,7 @@ DEFAULTS: dict = {
     "notify_on_task_failure": True,
     "notify_on_task_success": False,
     "notify_on_flow_completion": True,
+    "notify_on_approval_requested": True,
     "notify_desktop_enabled": True,
     "notify_sound_enabled": False,
     "default_sandbox": "",  # "" = host execution, "docker" = run in container

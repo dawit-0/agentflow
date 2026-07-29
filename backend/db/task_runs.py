@@ -113,6 +113,36 @@ async def cancel(db: aiosqlite.Connection, run_id: str) -> None:
     )
 
 
+async def get_pending_approval_gate(db: aiosqlite.Connection, limit: int) -> list[dict]:
+    """Queued runs whose task requires approval and haven't been gated yet."""
+    cursor = await db.execute(
+        """SELECT tr.id, tr.task_id, t.title AS task_title
+           FROM task_runs tr
+           JOIN tasks t ON t.id = tr.task_id
+           WHERE tr.status = 'queued' AND t.requires_approval = 1
+           AND tr.approval_status IS NULL
+           ORDER BY tr.started_at ASC LIMIT ?""",
+        (limit,),
+    )
+    return [dict(r) for r in await cursor.fetchall()]
+
+
+async def set_approval_status(db: aiosqlite.Connection, run_id: str, status: str) -> None:
+    await db.execute(
+        "UPDATE task_runs SET approval_status = ? WHERE id = ?",
+        (status, run_id),
+    )
+
+
+async def reject(db: aiosqlite.Connection, run_id: str, reason: Optional[str] = None) -> None:
+    """Reject a run gated by an approval requirement: cancel it in one step."""
+    await db.execute(
+        """UPDATE task_runs SET status = 'cancelled', approval_status = 'rejected',
+           finished_at = datetime('now'), error_message = ? WHERE id = ?""",
+        (reason, run_id),
+    )
+
+
 async def cancel_by_flow(db: aiosqlite.Connection, flow_id: str) -> None:
     await db.execute(
         """UPDATE task_runs SET status = 'cancelled', finished_at = datetime('now')
@@ -194,6 +224,7 @@ async def get_queued_ready(db: aiosqlite.Connection, limit: int) -> list[dict]:
            JOIN tasks t ON t.id = tr.task_id
            LEFT JOIN flow_runs fr ON fr.id = tr.flow_run_id
            WHERE tr.status = 'queued' AND t.status = 'active'
+           AND (t.requires_approval = 0 OR tr.approval_status = 'approved')
            AND (tr.not_before IS NULL OR tr.not_before <= datetime('now'))
            AND (tr.flow_run_id IS NULL OR fr.status = 'running')
            AND NOT EXISTS (

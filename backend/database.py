@@ -75,6 +75,7 @@ async def init_db():
                 last_run_at TEXT,
                 max_retries INTEGER DEFAULT 0,
                 retry_delay_seconds INTEGER DEFAULT 10,
+                requires_approval INTEGER DEFAULT 0,
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             );
@@ -118,6 +119,7 @@ async def init_db():
                 retry_of_run_id TEXT REFERENCES task_runs(id),
                 flow_run_id TEXT REFERENCES flow_runs(id),
                 not_before TEXT,
+                approval_status TEXT,
                 UNIQUE(task_id, run_number)
             );
 
@@ -173,6 +175,8 @@ async def init_db():
             ("flows", "max_active_runs", "ALTER TABLE flows ADD COLUMN max_active_runs INTEGER DEFAULT 1"),
             ("task_runs", "flow_run_id", "ALTER TABLE task_runs ADD COLUMN flow_run_id TEXT REFERENCES flow_runs(id)"),
             ("task_runs", "not_before", "ALTER TABLE task_runs ADD COLUMN not_before TEXT"),
+            ("tasks", "requires_approval", "ALTER TABLE tasks ADD COLUMN requires_approval INTEGER DEFAULT 0"),
+            ("task_runs", "approval_status", "ALTER TABLE task_runs ADD COLUMN approval_status TEXT"),
         ]:
             try:
                 await db.execute(ddl)
