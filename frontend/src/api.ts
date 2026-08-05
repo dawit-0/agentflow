@@ -60,9 +60,18 @@ export interface Task {
   next_run_at: string | null;
   last_run_at: string | null;
   sandbox: string;
+  secrets: string[];
   created_at: string;
   updated_at: string;
   latest_run?: TaskRun | null;
+}
+
+export interface Secret {
+  id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TaskRun {
@@ -182,6 +191,7 @@ export interface Agent {
   default_work_dir: string;
   default_flow_id: string | null;
   default_sandbox: string;
+  default_secrets: string[];
   created_at: string;
   updated_at: string;
 }
@@ -312,6 +322,7 @@ export const api = {
       max_retries?: number;
       retry_delay_seconds?: number;
       sandbox?: string;
+      secrets?: string[];
     }) => request<Task>("/tasks", { method: "POST", body: JSON.stringify(data) }),
     update: (
       id: string,
@@ -327,6 +338,7 @@ export const api = {
         schedule: string;
         schedule_enabled: boolean;
         sandbox: string;
+        secrets: string[];
       }>
     ) =>
       request<Task>(`/tasks/${id}`, {
@@ -373,6 +385,7 @@ export const api = {
       retry_delay_seconds?: number;
       trigger?: boolean;
       sandbox?: string;
+      secrets?: string[];
     }) => request<Task>("/tasks/quick", { method: "POST", body: JSON.stringify(data) }),
   },
   taskRuns: {
@@ -455,6 +468,7 @@ export const api = {
       default_work_dir?: string;
       default_flow_id?: string;
       default_sandbox?: string;
+      default_secrets?: string[];
     }) =>
       request<Agent>("/agents", {
         method: "POST",
@@ -472,6 +486,7 @@ export const api = {
         default_work_dir: string;
         default_flow_id: string;
         default_sandbox: string;
+        default_secrets: string[];
       }>
     ) =>
       request<Agent>(`/agents/${id}`, {
@@ -493,6 +508,7 @@ export const api = {
         depends_on?: string[];
         trigger?: boolean;
         sandbox?: string;
+        secrets?: string[];
       }
     ) =>
       request<Task>(`/agents/${id}/spawn`, {
@@ -536,5 +552,14 @@ export const api = {
       request<{ ok: boolean }>(`/notifications/${id}/read`, { method: "POST" }),
     markAllRead: () =>
       request<{ ok: boolean; marked: number }>("/notifications/read_all", { method: "POST" }),
+  },
+  secrets: {
+    list: () => request<Secret[]>("/secrets"),
+    create: (data: { name: string; value: string; description?: string }) =>
+      request<Secret>("/secrets", { method: "POST", body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<{ name: string; value: string; description: string }>) =>
+      request<Secret>(`/secrets/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+    delete: (id: string) =>
+      request<{ ok: boolean }>(`/secrets/${id}`, { method: "DELETE" }),
   },
 };

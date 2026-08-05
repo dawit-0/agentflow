@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import shutil
 from typing import AsyncIterator, Optional
 
@@ -61,9 +62,11 @@ class ClaudeProvider(BaseProvider):
         work_dir: str,
         permissions: dict,
         sandbox: Optional[SandboxConfig] = None,
+        secrets: Optional[dict[str, str]] = None,
     ) -> AsyncIterator[ProviderEvent]:
         claude_cmd = _build_claude_cmd(model, permissions)
         spawn_cwd: Optional[str] = None
+        spawn_env: Optional[dict] = None
         sandbox_event_extra: dict = {}
 
         if sandbox and sandbox.enabled:
@@ -72,7 +75,7 @@ class ClaudeProvider(BaseProvider):
             self._auth_dir = prepare_auth_dir()
             cmd = docker_run_prefix(
                 sandbox, work_dir, permissions, container_name,
-                auth_dir=self._auth_dir,
+                auth_dir=self._auth_dir, secrets=secrets,
             ) + claude_cmd
             sandbox_event_extra = {
                 "sandbox": "docker",
@@ -82,6 +85,8 @@ class ClaudeProvider(BaseProvider):
         else:
             cmd = claude_cmd
             spawn_cwd = work_dir or None
+            if secrets:
+                spawn_env = {**os.environ, **secrets}
 
         try:
             self.proc = await asyncio.create_subprocess_exec(
@@ -90,6 +95,7 @@ class ClaudeProvider(BaseProvider):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=spawn_cwd,
+                env=spawn_env,
             )
         except Exception:
             self._cleanup_auth_dir()

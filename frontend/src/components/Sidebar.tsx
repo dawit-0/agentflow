@@ -7,7 +7,7 @@ interface Props {
   onSelectFlow: (id: string | null) => void;
   onFlowsChange: () => void;
   tasks: Task[];
-  view: "flows" | "agents" | "settings" | "dashboard";
+  view: "flows" | "agents" | "settings" | "dashboard" | "notifications" | "secrets";
   agents: Agent[];
   onNewTask: () => void;
   onNewAgent: () => void;

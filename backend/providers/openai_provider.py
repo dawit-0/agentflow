@@ -25,7 +25,9 @@ class OpenAIProvider(BaseProvider):
         work_dir: str,
         permissions: dict,
         sandbox: Optional[SandboxConfig] = None,
+        secrets: Optional[dict[str, str]] = None,
     ) -> AsyncIterator[ProviderEvent]:
+        # No subprocess/shell involved — secrets have nothing to inject into.
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             self.exit_code = 1

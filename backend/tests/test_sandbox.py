@@ -103,6 +103,21 @@ def test_auth_dir_mounts_credentials_rw(tmp_path):
     assert f"{auth_dir}/.claude.json:/home/agent/.claude.json" in cmd
 
 
+def test_secrets_passed_as_env_flags():
+    cmd = docker_run_prefix(
+        _cfg(), "/w", {"file_read": True}, "agentflow-test",
+        secrets={"GITHUB_TOKEN": "ghp_abc123", "DB_PASSWORD": "hunter2"},
+    )
+    assert "-e" in cmd
+    assert "GITHUB_TOKEN=ghp_abc123" in cmd
+    assert "DB_PASSWORD=hunter2" in cmd
+
+
+def test_no_secrets_means_no_extra_env_flags():
+    cmd = docker_run_prefix(_cfg(), "/w", {"file_read": True}, "agentflow-test")
+    assert "GITHUB_TOKEN" not in " ".join(cmd)
+
+
 def test_prepare_auth_dir_writes_required_files(tmp_path, monkeypatch):
     # Point HOME at a temp dir so we don't depend on the developer's real home
     monkeypatch.setenv("HOME", str(tmp_path))

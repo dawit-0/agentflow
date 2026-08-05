@@ -12,6 +12,9 @@ backend/agentflow.db
 backend/agentflow.db-shm
 backend/agentflow.db-wal
 
+# Secrets encryption key
+backend/.secret_key
+
 # Filesystem-backed task run outputs
 backend/run_outputs/
 

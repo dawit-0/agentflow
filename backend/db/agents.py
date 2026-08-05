@@ -18,13 +18,14 @@ async def insert(db: aiosqlite.Connection, agent_id: str, name: str,
                   default_model: str, permissions_json: str,
                   default_work_dir: str,
                   default_flow_id: Optional[str],
-                  default_sandbox: str = "") -> None:
+                  default_sandbox: str = "",
+                  default_secrets_json: str = "[]") -> None:
     await db.execute(
-        """INSERT INTO agents (id, name, description, instructions, context, default_model, default_permissions, default_work_dir, default_flow_id, default_sandbox)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        """INSERT INTO agents (id, name, description, instructions, context, default_model, default_permissions, default_work_dir, default_flow_id, default_sandbox, default_secrets)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (agent_id, name, description, instructions, context_json,
          default_model, permissions_json, default_work_dir, default_flow_id,
-         default_sandbox),
+         default_sandbox, default_secrets_json),
     )
 
 
