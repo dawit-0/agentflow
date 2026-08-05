@@ -87,6 +87,7 @@ def docker_run_prefix(
     permissions: dict,
     container_name: str,
     auth_dir: Optional[str] = None,
+    secrets: Optional[dict] = None,
 ) -> list[str]:
     """Build the ``docker run …`` prefix that wraps the inner command.
 
@@ -101,6 +102,9 @@ def docker_run_prefix(
     ``/home/agent/.claude`` (the CLI writes session and project state there).
     The auth dir is required when sandbox is enabled; pass ``None`` only in
     tests.
+
+    ``secrets``: task-scoped ``{name: value}`` pairs passed as ``-e NAME=VALUE``
+    so the agent's Bash tool can read them from the environment.
     """
     network = "host" if (permissions.get("web_search") or permissions.get("mcp")) else "bridge"
 
@@ -134,6 +138,10 @@ def docker_run_prefix(
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if api_key:
         cmd.extend(["-e", f"ANTHROPIC_API_KEY={api_key}"])
+
+    # Task-scoped secrets, injected as env vars for the agent's Bash tool.
+    for name, value in (secrets or {}).items():
+        cmd.extend(["-e", f"{name}={value}"])
 
     cmd.append(cfg.image)
     return cmd

@@ -13,11 +13,12 @@ from database import get_db
 from db import tasks as db_tasks, task_runs as db_task_runs, flows as db_flows
 from db import task_run_output as db_output, task_dependencies as db_deps
 from db import task_xcom as db_xcom, flow_runs as db_flow_runs
-from db import settings as db_settings
+from db import settings as db_settings, secrets as db_secrets
 from logging_config import get_logger, task_logger
 from models import DEFAULT_PERMISSIONS
 from notifications import maybe_notify_run_finished, notify_flow_completed
 from providers.sandbox import SandboxConfig
+from secret_redact import redact as redact_secrets
 
 logger = get_logger("orchestrator")
 
@@ -191,6 +192,18 @@ class Orchestrator:
             cfg.container_name = f"agentflow-{run['id'][:12]}"
         return cfg
 
+    async def _resolve_secrets(self, db, run: dict) -> dict[str, str]:
+        """Decrypt the task's referenced secrets into a {name: value} map for
+        injection into the run's environment. Never logged, never returned
+        to the frontend."""
+        try:
+            names = json.loads(run.get("task_secrets") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            names = []
+        if not names:
+            return {}
+        return await db_secrets.get_values_by_names(db, names)
+
     async def _build_prompt_with_context(self, db, task_id: str, base_prompt: str,
                                          flow_run_id: Optional[str] = None) -> str:
         """Prepend upstream task outputs to the prompt for inter-task data passing.
@@ -255,6 +268,7 @@ class Orchestrator:
         base_prompt = run["prompt"]
         start_time = datetime.now(timezone.utc)
         seq = 0
+        secret_values: dict[str, str] = {}
         tlog = task_logger(run_id, task_id)
 
         try:
@@ -270,6 +284,7 @@ class Orchestrator:
                 prompt = await self._build_prompt_with_context(db, task_id, base_prompt,
                                                                flow_run_id)
                 sandbox_cfg = await self._resolve_sandbox(db, run)
+                secret_values = await self._resolve_secrets(db, run)
                 if sandbox_cfg.enabled:
                     await db_task_runs.set_sandbox(db, run_id,
                                                     sandbox_cfg.mode,
@@ -298,7 +313,9 @@ class Orchestrator:
             # `sandbox: docker` event marker only appears for ClaudeProvider.
             run_sandbox = sandbox_cfg if (sandbox_cfg.enabled and provider_name != "openai") else None
 
-            async for event in provider.execute(prompt, model, work_dir, permissions, sandbox=run_sandbox):
+            async for event in provider.execute(prompt, model, work_dir, permissions,
+                                                 sandbox=run_sandbox,
+                                                 secrets=secret_values or None):
                 seq += 1
 
                 # Track PID for subprocess-based providers
@@ -312,18 +329,23 @@ class Orchestrator:
                     finally:
                         await db.close()
 
-                await db_output.insert(run_id, seq, event.type, event.content)
+                # Mask any raw secret values before they ever hit storage or the wire.
+                content = redact_secrets(event.content, secret_values) if secret_values else event.content
+
+                await db_output.insert(run_id, seq, event.type, content)
 
                 await self.sio.emit("task_run:output", {
                     "task_run_id": run_id,
                     "task_id": task_id,
                     "seq": seq,
                     "type": event.type,
-                    "content": event.content,
+                    "content": content,
                 })
 
             exit_code = getattr(provider, "exit_code", 1)
             stderr_data = getattr(provider, "stderr_data", "")
+            if secret_values:
+                stderr_data = redact_secrets(stderr_data, secret_values)
             total_cost_usd = getattr(provider, "total_cost_usd", 0.0)
 
             elapsed = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
@@ -397,6 +419,8 @@ class Orchestrator:
             elapsed = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
             tlog.exception("run failed with exception after %dms", elapsed)
             error_msg = traceback.format_exc()
+            if secret_values:
+                error_msg = redact_secrets(error_msg, secret_values)
             db = await get_db()
             try:
                 await db_task_runs.set_failed(db, run_id, elapsed, error_msg)

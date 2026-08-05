@@ -76,6 +76,7 @@ async def _init_test_db():
                 default_work_dir TEXT DEFAULT '',
                 default_flow_id TEXT REFERENCES flows(id),
                 default_sandbox TEXT DEFAULT '',
+                default_secrets TEXT DEFAULT '[]',
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             );
@@ -97,6 +98,7 @@ async def _init_test_db():
                 max_retries INTEGER DEFAULT 0,
                 retry_delay_seconds INTEGER DEFAULT 10,
                 sandbox TEXT DEFAULT '',
+                secrets TEXT DEFAULT '[]',
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             );
@@ -156,6 +158,14 @@ async def _init_test_db():
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS secrets (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT DEFAULT '',
+                value_encrypted TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
             CREATE TABLE IF NOT EXISTS notifications (
                 id TEXT PRIMARY KEY,
                 kind TEXT NOT NULL,
@@ -185,7 +195,7 @@ async def _wipe_all_tables():
         for table in (
             "task_xcom", "questions", "notifications",
             "task_runs", "task_dependencies", "tasks", "flow_runs", "agents", "flows",
-            "settings",
+            "settings", "secrets",
         ):
             await db.execute(f"DELETE FROM {table}")
         await db.commit()
@@ -243,6 +253,7 @@ async def client():
         patch("routes.agents.get_db", _get_test_db),
         patch("routes.analytics.get_db", _get_test_db),
         patch("routes.notifications.get_db", _get_test_db),
+        patch("routes.secrets.get_db", _get_test_db),
         patch("orchestrator.get_db", _get_test_db),
     ):
         from main import app

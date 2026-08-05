@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { api, Flow, Agent, Model, ContextItem, Permissions, PERMISSION_PRESETS } from "../api";
+import { api, Flow, Agent, Model, ContextItem, Permissions, PERMISSION_PRESETS, Secret } from "../api";
 
 interface Props {
   flows: Flow[];
@@ -25,6 +25,11 @@ export default function AgentForm({ flows, agent, onClose, onSaved }: Props) {
   useEffect(() => {
     api.models.list().then(setModels).catch(() => {});
   }, []);
+  const [availableSecrets, setAvailableSecrets] = useState<Secret[]>([]);
+  useEffect(() => {
+    api.secrets.list().then(setAvailableSecrets).catch(() => {});
+  }, []);
+  const [defaultSecrets, setDefaultSecrets] = useState<string[]>(agent?.default_secrets || []);
   const [permissions, setPermissions] = useState<Permissions>(
     agent?.default_permissions?.preset
       ? agent.default_permissions
@@ -69,6 +74,7 @@ export default function AgentForm({ flows, agent, onClose, onSaved }: Props) {
         default_work_dir: defaultWorkDir.trim(),
         default_flow_id: defaultFlowId || undefined,
         default_sandbox: defaultSandbox,
+        default_secrets: defaultSecrets,
       };
       if (agent) {
         await api.agents.update(agent.id, data);
@@ -221,6 +227,33 @@ export default function AgentForm({ flows, agent, onClose, onSaved }: Props) {
               <option value="docker">Docker — disposable container</option>
             </select>
           </div>
+
+          {availableSecrets.length > 0 && (
+            <div className="form-group">
+              <label>Default Secrets (optional)</label>
+              <p className="field-hint">
+                Injected as environment variables into runs spawned from this agent. Manage values from the Secrets page.
+              </p>
+              <div className="secrets-multiselect">
+                {availableSecrets.map((s) => (
+                  <label key={s.id} className="permission-toggle" title={s.description}>
+                    <input
+                      type="checkbox"
+                      checked={defaultSecrets.includes(s.name)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setDefaultSecrets([...defaultSecrets, s.name]);
+                        } else {
+                          setDefaultSecrets(defaultSecrets.filter((n) => n !== s.name));
+                        }
+                      }}
+                    />
+                    <span>{s.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="form-group">
             <label>Default Permissions</label>

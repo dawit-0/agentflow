@@ -137,6 +137,15 @@ async def init_db():
                 answered_at TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS secrets (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT DEFAULT '',
+                value_encrypted TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+
             CREATE TABLE IF NOT EXISTS notifications (
                 id TEXT PRIMARY KEY,
                 kind TEXT NOT NULL,
@@ -173,6 +182,8 @@ async def init_db():
             ("flows", "max_active_runs", "ALTER TABLE flows ADD COLUMN max_active_runs INTEGER DEFAULT 1"),
             ("task_runs", "flow_run_id", "ALTER TABLE task_runs ADD COLUMN flow_run_id TEXT REFERENCES flow_runs(id)"),
             ("task_runs", "not_before", "ALTER TABLE task_runs ADD COLUMN not_before TEXT"),
+            ("tasks", "secrets", "ALTER TABLE tasks ADD COLUMN secrets TEXT DEFAULT '[]'"),
+            ("agents", "default_secrets", "ALTER TABLE agents ADD COLUMN default_secrets TEXT DEFAULT '[]'"),
         ]:
             try:
                 await db.execute(ddl)

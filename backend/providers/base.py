@@ -37,8 +37,14 @@ class BaseProvider(ABC):
         work_dir: str,
         permissions: dict,
         sandbox: Optional[SandboxConfig] = None,
+        secrets: Optional[dict[str, str]] = None,
     ) -> AsyncIterator[ProviderEvent]:
-        """Yield streaming events. The orchestrator consumes these uniformly."""
+        """Yield streaming events. The orchestrator consumes these uniformly.
+
+        ``secrets`` is a ``{env_var_name: value}`` map injected into the
+        execution environment only — never logged, never echoed into the
+        prompt or command line.
+        """
         ...  # pragma: no cover
 
     @abstractmethod
