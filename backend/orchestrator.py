@@ -13,11 +13,12 @@ from database import get_db
 from db import tasks as db_tasks, task_runs as db_task_runs, flows as db_flows
 from db import task_run_output as db_output, task_dependencies as db_deps
 from db import task_xcom as db_xcom, flow_runs as db_flow_runs
-from db import settings as db_settings
+from db import settings as db_settings, secrets as db_secrets
 from logging_config import get_logger, task_logger
 from models import DEFAULT_PERMISSIONS
 from notifications import maybe_notify_run_finished, notify_flow_completed
 from providers.sandbox import SandboxConfig
+from secrets_template import resolve_secrets, redact_secret_values
 
 logger = get_logger("orchestrator")
 
@@ -269,14 +270,25 @@ class Orchestrator:
             try:
                 prompt = await self._build_prompt_with_context(db, task_id, base_prompt,
                                                                flow_run_id)
+                prompt, missing_secrets, secret_values = await resolve_secrets(db, prompt)
+                if secret_values and not missing_secrets:
+                    await db_secrets.touch_last_used(db, list(secret_values.keys()))
                 sandbox_cfg = await self._resolve_sandbox(db, run)
                 if sandbox_cfg.enabled:
                     await db_task_runs.set_sandbox(db, run_id,
                                                     sandbox_cfg.mode,
                                                     sandbox_cfg.container_name)
-                    await db.commit()
+                await db.commit()
             finally:
                 await db.close()
+
+            if missing_secrets:
+                error_msg = ("Unresolved secret reference(s): " +
+                             ", ".join(f"{{{{secret.{n}}}}}" for n in missing_secrets))
+                tlog.warning("run aborted before dispatch: %s", error_msg)
+                await self._fail_run_before_dispatch(run_id, task_id, flow_run_id,
+                                                     start_time, error_msg)
+                return
 
             # Select provider based on model
             from providers import get_provider as resolve_provider
@@ -312,14 +324,15 @@ class Orchestrator:
                     finally:
                         await db.close()
 
-                await db_output.insert(run_id, seq, event.type, event.content)
+                content = redact_secret_values(event.content, secret_values)
+                await db_output.insert(run_id, seq, event.type, content)
 
                 await self.sio.emit("task_run:output", {
                     "task_run_id": run_id,
                     "task_id": task_id,
                     "seq": seq,
                     "type": event.type,
-                    "content": event.content,
+                    "content": content,
                 })
 
             exit_code = getattr(provider, "exit_code", 1)
@@ -435,6 +448,53 @@ class Orchestrator:
             await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "failed"})
         finally:
             self.running_providers.pop(run_id, None)
+
+    async def _fail_run_before_dispatch(self, run_id: str, task_id: str,
+                                        flow_run_id: Optional[str],
+                                        start_time: datetime, error_msg: str) -> None:
+        """Mark a run failed without ever invoking a provider.
+
+        Used for pre-flight config errors (e.g. an unresolved secret
+        reference) — mirrors the exception-path cleanup in _execute_run
+        (retry, cascade cancel, notify, finalize flow run) since the run
+        never got far enough to hit that path itself."""
+        elapsed = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
+        db = await get_db()
+        try:
+            await db_task_runs.set_failed(db, run_id, elapsed, error_msg)
+            retried = await self._maybe_auto_retry(db, run_id, task_id)
+            if not retried:
+                await self._cascade_cancel_downstream(db, task_id, flow_run_id)
+            await db.commit()
+
+            if not retried:
+                task_row = await db_tasks.get_by_id(db, task_id)
+                if task_row:
+                    try:
+                        await maybe_notify_run_finished(
+                            db, self.sio,
+                            task=dict(task_row),
+                            task_run_id=run_id,
+                            status="failed",
+                            error_message=error_msg,
+                        )
+                        await db.commit()
+                    except Exception:
+                        logger.exception("per-run notification failed for run=%s", run_id)
+
+            if flow_run_id:
+                await self._finalize_flow_run(db, flow_run_id)
+                await db.commit()
+        finally:
+            await db.close()
+
+        await self.sio.emit("task_run:finished", {
+            "id": run_id,
+            "task_id": task_id,
+            "status": "failed",
+            "error_message": error_msg,
+        })
+        await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "failed"})
 
     async def _maybe_auto_retry(self, db: aiosqlite.Connection, failed_run_id: str, task_id: str) -> bool:
         """Queue a delayed retry for the failed run if configured. Returns True

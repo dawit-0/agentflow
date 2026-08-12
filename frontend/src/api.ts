@@ -269,6 +269,19 @@ export interface AppNotification {
   created_at: string;
 }
 
+export interface Secret {
+  id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+}
+
+export interface ApiError {
+  detail: string;
+}
+
 export interface DebugStatus {
   orchestrator: {
     running: boolean;
@@ -523,6 +536,21 @@ export const api = {
       request<DurationBucket[]>(`/analytics/duration_histogram${since ? `?since=${encodeURIComponent(since)}` : ""}`),
     recentFailures: (limit = 20) =>
       request<RecentFailure[]>(`/analytics/recent_failures?limit=${limit}`),
+  },
+  secrets: {
+    list: () => request<Secret[]>("/secrets"),
+    create: (data: { name: string; description?: string; value: string }) =>
+      request<Secret | ApiError>("/secrets", { method: "POST", body: JSON.stringify(data) }),
+    update: (
+      id: string,
+      data: Partial<{ name: string; description: string; value: string }>
+    ) =>
+      request<Secret | ApiError>(`/secrets/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: string) =>
+      request<{ ok: boolean }>(`/secrets/${id}`, { method: "DELETE" }),
   },
   notifications: {
     list: (unreadOnly = false, limit = 50) => {

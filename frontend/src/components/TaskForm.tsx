@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { api, Task, Flow, Model, Permissions, PERMISSION_PRESETS } from "../api";
+import React, { useState, useEffect, useRef } from "react";
+import { api, Task, Flow, Model, Permissions, PERMISSION_PRESETS, Secret } from "../api";
 import { TaskPrefill } from "../App";
 
 interface Props {
@@ -31,6 +31,10 @@ function describeCron(expr: string): string {
   return expr;
 }
 
+function placeholderFor(secretName: string): string {
+  return `{{secret.${secretName}}}`;
+}
+
 export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreated, prefill }: Props) {
   const [models, setModels] = useState<Model[]>(FALLBACK_MODELS);
   const [title, setTitle] = useState(prefill?.title || "");
@@ -40,6 +44,33 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
   useEffect(() => {
     api.models.list().then(setModels).catch(() => {});
   }, []);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const [secrets, setSecrets] = useState<Secret[]>([]);
+  const [showSecretMenu, setShowSecretMenu] = useState(false);
+
+  useEffect(() => {
+    api.secrets.list().then(setSecrets).catch(() => {});
+  }, []);
+
+  function insertSecretRef(secretName: string) {
+    const ref = placeholderFor(secretName);
+    const el = promptRef.current;
+    if (!el) {
+      setPrompt((p) => p + ref);
+      setShowSecretMenu(false);
+      return;
+    }
+    const start = el.selectionStart ?? prompt.length;
+    const end = el.selectionEnd ?? prompt.length;
+    const next = prompt.slice(0, start) + ref + prompt.slice(end);
+    setPrompt(next);
+    setShowSecretMenu(false);
+    requestAnimationFrame(() => {
+      el.focus();
+      const cursor = start + ref.length;
+      el.setSelectionRange(cursor, cursor);
+    });
+  }
   const [workDir, setWorkDir] = useState(prefill?.workDir || "");
   const [permissions, setPermissions] = useState<Permissions>(
     prefill?.permissions?.preset ? prefill.permissions : PERMISSION_PRESETS["standard"]
@@ -176,12 +207,44 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
           </div>
 
           <div className="form-group">
-            <label>Prompt</label>
+            <div className="prompt-label-row">
+              <label>Prompt</label>
+              {secrets.length > 0 && (
+                <div className="secret-insert-menu">
+                  <button
+                    type="button"
+                    className="btn-link"
+                    onClick={() => setShowSecretMenu(!showSecretMenu)}
+                  >
+                    Insert secret ▾
+                  </button>
+                  {showSecretMenu && (
+                    <div className="secret-insert-dropdown">
+                      {secrets.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          className="secret-insert-option"
+                          onClick={() => insertSecretRef(s.name)}
+                        >
+                          {placeholderFor(s.name)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <textarea
+              ref={promptRef}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder={isSpawn ? "Describe the specific task..." : "Detailed instructions for the agent..."}
             />
+            <p className="field-hint">
+              Reference a stored secret with <code>{"{{secret.NAME}}"}</code> — it's resolved
+              right before the run starts and never saved in plaintext. Manage secrets in Settings.
+            </p>
           </div>
 
           <div className="form-group">
