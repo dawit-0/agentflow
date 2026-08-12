@@ -34,6 +34,7 @@ Open **http://localhost:5173**.
 - **Agents** — Reusable templates bundling instructions, attached context (files / URLs / text), and default settings.
 - **Scheduling** — Cron-based triggers on tasks or flows, with common presets (hourly, daily, weekdays, weekly, monthly).
 - **Permissions** — Per-agent tool access: Read Only, Standard, or Full Access (enforced via Claude CLI `--allowedTools`).
+- **Secrets** — A vault for API keys and tokens, encrypted at rest. Reference one from any task prompt with `{{secret.NAME}}`; it's resolved right before the run starts and never written back to the prompt. See [Secrets](#secrets).
 - **Sandbox** — Optional Docker isolation per run: disposable container, bind-mounted work directory, restricted network, resource caps. See [Sandbox mode](#sandbox-mode).
 - **Analytics** — Built-in dashboard for run volume, success rate, cost, and top failing tasks.
 - **Notifications** — In-app alerts for run completion, failures, and schedule events.
@@ -59,6 +60,30 @@ Open **http://localhost:5173**.
 
 - `MAX_CONCURRENT_RUNS` — parallel run cap (default `5`), editable from the Settings page or in `backend/orchestrator.py`.
 - `OPENAI_API_KEY` — required to use OpenAI models.
+
+## Secrets
+
+Before this, the only way to get a credential into a prompt was to paste it
+in directly — visible forever in the task's edit history and run output.
+Secrets fixes that: store a value once under Settings → Secrets, then
+reference it from any task prompt as `{{secret.NAME}}`.
+
+- **Encrypted at rest.** Values are encrypted with a key kept outside git
+  (`backend/.secret_key`, auto-generated on first use, or pin one yourself
+  via `AGENTFLOW_SECRET_KEY`). The API never returns a stored value back —
+  only its name, description, and last-used time.
+- **Resolved at run time, not save time.** The placeholder is expanded
+  against the vault right before the agent starts, so the task's stored
+  prompt keeps the placeholder, never the plaintext value.
+- **Fails fast on typos.** A prompt referencing a secret that doesn't exist
+  fails the run immediately with a clear error, before any provider (and
+  cost) is involved.
+- **Masked in run output.** If an agent's output happens to echo a resolved
+  secret back, the value is replaced with `***NAME***` before it's logged
+  or streamed — the model still gets the real value, only the persisted
+  history is redacted.
+- **Rotation.** Update a secret's value in place from Settings without
+  touching the tasks that reference it.
 
 ## Sandbox mode
 

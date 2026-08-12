@@ -7,6 +7,7 @@ from unittest.mock import patch
 import aiosqlite
 import pytest
 import pytest_asyncio
+from cryptography.fernet import Fernet
 from httpx import ASGITransport, AsyncClient
 
 # Ensure backend is importable
@@ -15,6 +16,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 # Isolate filesystem-backed task run output to a tmp dir for the test session.
 _TEST_OUTPUT_DIR = tempfile.mkdtemp(prefix="agentflow-test-outputs-")
 os.environ["AGENTFLOW_OUTPUT_DIR"] = _TEST_OUTPUT_DIR
+
+# Pin the secrets-vault encryption key so tests never touch backend/.secret_key.
+os.environ["AGENTFLOW_SECRET_KEY"] = Fernet.generate_key().decode()
 
 # Shared in-memory DB URI so every get_db() call sees the same data
 _TEST_DB_URI = "file:test_db?mode=memory&cache=shared"
@@ -172,6 +176,15 @@ async def _init_test_db():
             CREATE INDEX IF NOT EXISTS idx_runs_started ON task_runs(started_at);
             CREATE INDEX IF NOT EXISTS idx_runs_status_started ON task_runs(status, started_at);
             CREATE INDEX IF NOT EXISTS idx_runs_task_status ON task_runs(task_id, status);
+            CREATE TABLE IF NOT EXISTS secrets (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT DEFAULT '',
+                value_encrypted TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                last_used_at TEXT
+            );
         """)
         await db.commit()
     finally:
@@ -185,7 +198,7 @@ async def _wipe_all_tables():
         for table in (
             "task_xcom", "questions", "notifications",
             "task_runs", "task_dependencies", "tasks", "flow_runs", "agents", "flows",
-            "settings",
+            "settings", "secrets",
         ):
             await db.execute(f"DELETE FROM {table}")
         await db.commit()
@@ -243,6 +256,7 @@ async def client():
         patch("routes.agents.get_db", _get_test_db),
         patch("routes.analytics.get_db", _get_test_db),
         patch("routes.notifications.get_db", _get_test_db),
+        patch("routes.secrets.get_db", _get_test_db),
         patch("orchestrator.get_db", _get_test_db),
     ):
         from main import app

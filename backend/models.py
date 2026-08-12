@@ -149,3 +149,15 @@ class QuickTaskCreate(BaseModel):
 
 class AnswerCreate(BaseModel):
     answer: str
+
+
+class SecretCreate(BaseModel):
+    name: str
+    description: str = ""
+    value: str
+
+
+class SecretUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    value: Optional[str] = None

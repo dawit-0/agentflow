@@ -4,6 +4,7 @@ import {
   desktopPermission,
   requestDesktopPermission,
 } from "../lib/desktopNotifications";
+import SecretsPanel from "./SecretsPanel";
 
 interface Props {
   onSettingsChanged?: (settings: Settings) => void;
@@ -233,6 +234,9 @@ export default function SettingsPage({ onSettingsChanged }: Props = {}) {
               </div>
             </div>
           </div>
+
+          {/* Secrets */}
+          <SecretsPanel />
 
           {/* Notifications */}
           <div className="settings-section">

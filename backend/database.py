@@ -154,6 +154,16 @@ async def init_db():
             CREATE INDEX IF NOT EXISTS idx_runs_started ON task_runs(started_at);
             CREATE INDEX IF NOT EXISTS idx_runs_status_started ON task_runs(status, started_at);
             CREATE INDEX IF NOT EXISTS idx_runs_task_status ON task_runs(task_id, status);
+
+            CREATE TABLE IF NOT EXISTS secrets (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT DEFAULT '',
+                value_encrypted TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                last_used_at TEXT
+            );
         """)
         await db.commit()
 
