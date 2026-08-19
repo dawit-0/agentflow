@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { api, Flow, Agent, Model, ContextItem, Permissions, PERMISSION_PRESETS } from "../api";
+import { api, Flow, Agent, Model, ContextItem, Permissions, PERMISSION_PRESETS, Secret } from "../api";
 
 interface Props {
   flows: Flow[];
@@ -36,6 +36,13 @@ export default function AgentForm({ flows, agent, onClose, onSaved }: Props) {
   const [defaultSandbox, setDefaultSandbox] = useState<"" | "docker">(
     (agent?.default_sandbox as "" | "docker") || ""
   );
+  const [secrets, setSecrets] = useState<Secret[]>([]);
+  useEffect(() => {
+    api.secrets.list().then(setSecrets).catch(() => {});
+  }, []);
+  const [defaultSecretNames, setDefaultSecretNames] = useState<string[]>(
+    agent?.default_secret_names || []
+  );
   const [submitting, setSubmitting] = useState(false);
 
   function addContextItem(type: "file" | "url" | "text") {
@@ -69,6 +76,7 @@ export default function AgentForm({ flows, agent, onClose, onSaved }: Props) {
         default_work_dir: defaultWorkDir.trim(),
         default_flow_id: defaultFlowId || undefined,
         default_sandbox: defaultSandbox,
+        default_secret_names: defaultSecretNames,
       };
       if (agent) {
         await api.agents.update(agent.id, data);
@@ -274,6 +282,33 @@ export default function AgentForm({ flows, agent, onClose, onSaved }: Props) {
               </div>
             )}
           </div>
+
+          {secrets.length > 0 && (
+            <div className="form-group">
+              <label>Default Secrets (optional)</label>
+              <div className="depends-on-list">
+                {secrets.map((s) => (
+                  <label key={s.id} className="permission-toggle">
+                    <input
+                      type="checkbox"
+                      checked={defaultSecretNames.includes(s.name)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setDefaultSecretNames([...defaultSecretNames, s.name]);
+                        } else {
+                          setDefaultSecretNames(defaultSecretNames.filter((n) => n !== s.name));
+                        }
+                      }}
+                    />
+                    <span>{s.name}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="field-hint">
+                Tasks spawned from this agent get these secrets as environment variables by default.
+              </p>
+            </div>
+          )}
 
           <div className="form-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose}>

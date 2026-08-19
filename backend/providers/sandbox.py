@@ -87,6 +87,7 @@ def docker_run_prefix(
     permissions: dict,
     container_name: str,
     auth_dir: Optional[str] = None,
+    secrets: Optional[dict] = None,
 ) -> list[str]:
     """Build the ``docker run …`` prefix that wraps the inner command.
 
@@ -101,6 +102,11 @@ def docker_run_prefix(
     ``/home/agent/.claude`` (the CLI writes session and project state there).
     The auth dir is required when sandbox is enabled; pass ``None`` only in
     tests.
+
+    Secrets: the task's decrypted secrets, passed in as ``-e NAME=VALUE``.
+    Same visibility trade-off as the ``ANTHROPIC_API_KEY`` pass-through below —
+    readable via ``docker inspect``/process listing on the host, which is
+    consistent with this being a locally-run tool rather than a shared host.
     """
     network = "host" if (permissions.get("web_search") or permissions.get("mcp")) else "bridge"
 
@@ -134,6 +140,9 @@ def docker_run_prefix(
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if api_key:
         cmd.extend(["-e", f"ANTHROPIC_API_KEY={api_key}"])
+
+    for name, value in (secrets or {}).items():
+        cmd.extend(["-e", f"{name}={value}"])
 
     cmd.append(cfg.image)
     return cmd

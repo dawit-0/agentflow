@@ -37,8 +37,13 @@ class BaseProvider(ABC):
         work_dir: str,
         permissions: dict,
         sandbox: Optional[SandboxConfig] = None,
+        env: Optional[dict] = None,
     ) -> AsyncIterator[ProviderEvent]:
-        """Yield streaming events. The orchestrator consumes these uniformly."""
+        """Yield streaming events. The orchestrator consumes these uniformly.
+
+        ``env`` holds decrypted secrets selected for this run, keyed by the
+        env var name they should be exposed under.
+        """
         ...  # pragma: no cover
 
     @abstractmethod

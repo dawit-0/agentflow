@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { api, Task, Flow, Model, Permissions, PERMISSION_PRESETS } from "../api";
+import { api, Task, Flow, Model, Permissions, PERMISSION_PRESETS, Secret } from "../api";
 import { TaskPrefill } from "../App";
 
 interface Props {
@@ -40,6 +40,11 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
   useEffect(() => {
     api.models.list().then(setModels).catch(() => {});
   }, []);
+  const [secrets, setSecrets] = useState<Secret[]>([]);
+  useEffect(() => {
+    api.secrets.list().then(setSecrets).catch(() => {});
+  }, []);
+  const [secretNames, setSecretNames] = useState<string[]>(prefill?.secretNames || []);
   const [workDir, setWorkDir] = useState(prefill?.workDir || "");
   const [permissions, setPermissions] = useState<Permissions>(
     prefill?.permissions?.preset ? prefill.permissions : PERMISSION_PRESETS["standard"]
@@ -106,6 +111,7 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
           depends_on: dependsOn.length > 0 ? dependsOn : undefined,
           trigger: triggerNow,
           sandbox: sandboxValue,
+          secret_names: secretNames,
         });
       } else {
         const task = await api.tasks.create({
@@ -122,6 +128,7 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
           max_retries: maxRetries > 0 ? maxRetries : undefined,
           retry_delay_seconds: maxRetries > 0 ? retryDelay : undefined,
           sandbox: sandboxValue,
+          secret_names: secretNames,
         } as Parameters<typeof api.tasks.create>[0]);
 
         // Trigger immediately if requested and no schedule
@@ -439,6 +446,33 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
                 : "Inherits the global Sandbox setting."}
             </p>
           </div>
+
+          {secrets.length > 0 && (
+            <div className="form-group">
+              <label>Secrets (optional)</label>
+              <div className="depends-on-list">
+                {secrets.map((s) => (
+                  <label key={s.id} className="permission-toggle">
+                    <input
+                      type="checkbox"
+                      checked={secretNames.includes(s.name)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSecretNames([...secretNames, s.name]);
+                        } else {
+                          setSecretNames(secretNames.filter((n) => n !== s.name));
+                        }
+                      }}
+                    />
+                    <span>{s.name}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="field-hint">
+                Selected secrets are decrypted and exposed as environment variables to this run only.
+              </p>
+            </div>
+          )}
 
           <div className="form-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose}>

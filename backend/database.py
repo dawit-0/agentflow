@@ -154,6 +154,16 @@ async def init_db():
             CREATE INDEX IF NOT EXISTS idx_runs_started ON task_runs(started_at);
             CREATE INDEX IF NOT EXISTS idx_runs_status_started ON task_runs(status, started_at);
             CREATE INDEX IF NOT EXISTS idx_runs_task_status ON task_runs(task_id, status);
+
+            CREATE TABLE IF NOT EXISTS secrets (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT DEFAULT '',
+                encrypted_value TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                last_used_at TEXT
+            );
         """)
         await db.commit()
 
@@ -173,6 +183,8 @@ async def init_db():
             ("flows", "max_active_runs", "ALTER TABLE flows ADD COLUMN max_active_runs INTEGER DEFAULT 1"),
             ("task_runs", "flow_run_id", "ALTER TABLE task_runs ADD COLUMN flow_run_id TEXT REFERENCES flow_runs(id)"),
             ("task_runs", "not_before", "ALTER TABLE task_runs ADD COLUMN not_before TEXT"),
+            ("tasks", "secret_names", "ALTER TABLE tasks ADD COLUMN secret_names TEXT DEFAULT '[]'"),
+            ("agents", "default_secret_names", "ALTER TABLE agents ADD COLUMN default_secret_names TEXT DEFAULT '[]'"),
         ]:
             try:
                 await db.execute(ddl)
