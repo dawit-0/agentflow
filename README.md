@@ -35,6 +35,7 @@ Open **http://localhost:5173**.
 - **Scheduling** — Cron-based triggers on tasks or flows, with common presets (hourly, daily, weekdays, weekly, monthly).
 - **Permissions** — Per-agent tool access: Read Only, Standard, or Full Access (enforced via Claude CLI `--allowedTools`).
 - **Sandbox** — Optional Docker isolation per run: disposable container, bind-mounted work directory, restricted network, resource caps. See [Sandbox mode](#sandbox-mode).
+- **Secrets** — Encrypted-at-rest vault for API keys, tokens, and credentials. Select which secrets a task or agent needs and they're decrypted into that run's environment only — never pasted into a prompt or returned by the API after creation.
 - **Analytics** — Built-in dashboard for run volume, success rate, cost, and top failing tasks.
 - **Notifications** — In-app alerts for run completion, failures, and schedule events.
 
@@ -96,3 +97,22 @@ are auto-removed on exit (`docker run --rm`).
 
 **Note:** OpenAI tasks bypass the sandbox — they make HTTP calls only and have
 no local filesystem access to isolate.
+
+## Secrets
+
+Store credentials once in **Secrets** (the key icon in the header) and attach
+them to individual tasks or as an agent's defaults. Selected secrets are
+decrypted and exposed as environment variables — named after the secret —
+only to that run's process (or container, when sandboxed); they're never
+interpolated into the prompt.
+
+- Values are encrypted at rest with [Fernet](https://cryptography.io/en/latest/fernet/)
+  symmetric encryption. The key comes from `AGENTFLOW_SECRET_KEY` if set,
+  otherwise it's generated once and stored in `backend/.secret_key`
+  (gitignored — back it up, or existing secrets become unrecoverable).
+- The API never returns a secret's value after creation — only its name,
+  description, and usage timestamps. Rotate a value or delete it; you can't
+  read it back.
+- An agent with `bash` permission can still print an env var it was given
+  access to (e.g. `echo $GITHUB_TOKEN`) — same trade-off as any CI system.
+  Only attach the secrets a task actually needs.

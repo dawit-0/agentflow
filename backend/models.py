@@ -1,5 +1,9 @@
-from pydantic import BaseModel
+import re
+
+from pydantic import BaseModel, field_validator
 from typing import Optional
+
+SECRET_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 PERMISSION_PRESETS = {
@@ -49,6 +53,7 @@ class TaskCreate(BaseModel):
     retry_delay_seconds: int = 10
     trigger: bool = False
     sandbox: Optional[str] = None
+    secret_names: Optional[list[str]] = None
 
 
 class TaskUpdate(BaseModel):
@@ -65,6 +70,7 @@ class TaskUpdate(BaseModel):
     max_retries: Optional[int] = None
     retry_delay_seconds: Optional[int] = None
     sandbox: Optional[str] = None
+    secret_names: Optional[list[str]] = None
 
 
 class TaskTrigger(BaseModel):
@@ -107,6 +113,7 @@ class AgentCreate(BaseModel):
     default_work_dir: str = ""
     default_flow_id: Optional[str] = None
     default_sandbox: Optional[str] = None
+    default_secret_names: Optional[list[str]] = None
 
 
 class AgentUpdate(BaseModel):
@@ -119,6 +126,7 @@ class AgentUpdate(BaseModel):
     default_work_dir: Optional[str] = None
     default_flow_id: Optional[str] = None
     default_sandbox: Optional[str] = None
+    default_secret_names: Optional[list[str]] = None
 
 
 class SpawnTask(BaseModel):
@@ -132,6 +140,7 @@ class SpawnTask(BaseModel):
     depends_on: Optional[list[str]] = None
     trigger: bool = True  # whether to immediately trigger a run
     sandbox: Optional[str] = None
+    secret_names: Optional[list[str]] = None  # override agent's default_secret_names
 
 
 class QuickTaskCreate(BaseModel):
@@ -145,7 +154,35 @@ class QuickTaskCreate(BaseModel):
     retry_delay_seconds: int = 10
     trigger: bool = True
     sandbox: Optional[str] = None
+    secret_names: Optional[list[str]] = None
 
 
 class AnswerCreate(BaseModel):
     answer: str
+
+
+class SecretCreate(BaseModel):
+    name: str
+    value: str
+    description: str = ""
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        if not SECRET_NAME_RE.match(v):
+            raise ValueError(
+                "name must look like an env var: letters, digits, underscores, not starting with a digit"
+            )
+        return v
+
+    @field_validator("value")
+    @classmethod
+    def validate_value(cls, v: str) -> str:
+        if not v:
+            raise ValueError("value must not be empty")
+        return v
+
+
+class SecretUpdate(BaseModel):
+    value: Optional[str] = None
+    description: Optional[str] = None

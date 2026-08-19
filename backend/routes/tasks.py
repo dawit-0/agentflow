@@ -20,6 +20,10 @@ def _parse_task_row(row):
         task["permissions"] = json.loads(task.get("permissions") or "{}")
     except (json.JSONDecodeError, TypeError):
         task["permissions"] = DEFAULT_PERMISSIONS
+    try:
+        task["secret_names"] = json.loads(task.get("secret_names") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        task["secret_names"] = []
     return task
 
 
@@ -73,7 +77,8 @@ async def quick_create_task(body: QuickTaskCreate):
                                      body.model, body.work_dir, flow_id,
                                      permissions_json, body.schedule, next_run_at,
                                      body.max_retries, body.retry_delay_seconds,
-                                     sandbox=body.sandbox or "")
+                                     sandbox=body.sandbox or "",
+                                     secret_names_json=json.dumps(body.secret_names or []))
 
         # Trigger immediately if requested
         if body.trigger and not body.schedule:
@@ -155,7 +160,8 @@ async def create_task(body: TaskCreate):
                                body.priority, body.work_dir, flow_id, body.agent_id,
                                permissions_json, body.schedule, next_run_at,
                                body.max_retries, body.retry_delay_seconds,
-                               sandbox=body.sandbox or "")
+                               sandbox=body.sandbox or "",
+                               secret_names_json=json.dumps(body.secret_names or []))
 
         for dep_id in depends_on:
             if dep_id != task_id:
@@ -192,6 +198,10 @@ async def update_task(task_id: str, body: TaskUpdate):
         # Handle permissions as JSON
         if "permissions" in data:
             data["permissions"] = json.dumps(data["permissions"])
+
+        # Handle secret_names as JSON
+        if "secret_names" in data:
+            data["secret_names"] = json.dumps(data["secret_names"])
 
         for field, value in data.items():
             updates.append(f"{field} = ?")
