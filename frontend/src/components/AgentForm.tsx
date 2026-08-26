@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { api, Flow, Agent, Model, ContextItem, Permissions, PERMISSION_PRESETS } from "../api";
+import { api, Flow, Agent, Model, ContextItem, Permissions, PERMISSION_PRESETS, Secret } from "../api";
 
 interface Props {
   flows: Flow[];
@@ -36,6 +36,13 @@ export default function AgentForm({ flows, agent, onClose, onSaved }: Props) {
   const [defaultSandbox, setDefaultSandbox] = useState<"" | "docker">(
     (agent?.default_sandbox as "" | "docker") || ""
   );
+  const [secrets, setSecrets] = useState<Secret[]>([]);
+  useEffect(() => {
+    api.secrets.list().then(setSecrets).catch(() => {});
+  }, []);
+  const [defaultSecretKeys, setDefaultSecretKeys] = useState<string[]>(
+    agent?.default_secret_keys || []
+  );
   const [submitting, setSubmitting] = useState(false);
 
   function addContextItem(type: "file" | "url" | "text") {
@@ -69,6 +76,7 @@ export default function AgentForm({ flows, agent, onClose, onSaved }: Props) {
         default_work_dir: defaultWorkDir.trim(),
         default_flow_id: defaultFlowId || undefined,
         default_sandbox: defaultSandbox,
+        default_secret_keys: defaultSecretKeys,
       };
       if (agent) {
         await api.agents.update(agent.id, data);
@@ -220,6 +228,42 @@ export default function AgentForm({ flows, agent, onClose, onSaved }: Props) {
               <option value="">Inherit global setting</option>
               <option value="docker">Docker — disposable container</option>
             </select>
+          </div>
+
+          <div className="form-group">
+            <label>Default Secrets (optional)</label>
+            {secrets.length === 0 ? (
+              <p className="field-hint">
+                No secrets configured yet. Add some from the Secrets page to expose them
+                here as environment variables.
+              </p>
+            ) : (
+              <>
+                <div className="secret-picker-list">
+                  {secrets.map((s) => (
+                    <label key={s.id} className="permission-toggle">
+                      <input
+                        type="checkbox"
+                        checked={defaultSecretKeys.includes(s.key)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setDefaultSecretKeys([...defaultSecretKeys, s.key]);
+                          } else {
+                            setDefaultSecretKeys(defaultSecretKeys.filter((k) => k !== s.key));
+                          }
+                        }}
+                      />
+                      <span>{s.key}</span>
+                      {s.description && <span className="text-muted"> — {s.description}</span>}
+                    </label>
+                  ))}
+                </div>
+                <p className="field-hint">
+                  Tasks spawned from this agent get these secrets as environment variables
+                  by default, unless overridden.
+                </p>
+              </>
+            )}
           </div>
 
           <div className="form-group">

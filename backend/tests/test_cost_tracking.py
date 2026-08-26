@@ -77,6 +77,45 @@ async def test_claude_provider_total_cost_defaults_to_zero_when_missing():
     assert provider.total_cost_usd == 0.0
 
 
+async def test_claude_provider_merges_secret_env_on_host():
+    from providers.claude_provider import ClaudeProvider
+
+    stream = (json.dumps({"type": "assistant", "content": "hi"}) + "\n").encode("utf-8")
+    captured_kwargs = {}
+
+    async def fake_exec(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return _FakeProc(stream)
+
+    provider = ClaudeProvider()
+    with patch("asyncio.create_subprocess_exec", new=fake_exec):
+        async for _ in provider.execute(
+            "p", "claude-sonnet-4-20250514", "/tmp", {}, env={"GITHUB_TOKEN": "ghp_xyz"}
+        ):
+            pass
+
+    assert captured_kwargs["env"]["GITHUB_TOKEN"] == "ghp_xyz"
+
+
+async def test_claude_provider_no_env_override_when_no_secrets():
+    from providers.claude_provider import ClaudeProvider
+
+    stream = (json.dumps({"type": "assistant", "content": "hi"}) + "\n").encode("utf-8")
+    captured_kwargs = {}
+
+    async def fake_exec(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return _FakeProc(stream)
+
+    provider = ClaudeProvider()
+    with patch("asyncio.create_subprocess_exec", new=fake_exec):
+        async for _ in provider.execute("p", "claude-sonnet-4-20250514", "/tmp", {}):
+            pass
+
+    # env=None means "inherit the parent process's environment" (subprocess default)
+    assert captured_kwargs["env"] is None
+
+
 async def test_set_finished_persists_cost(db):
     from db import task_runs as db_task_runs
 

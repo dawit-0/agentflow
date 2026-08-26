@@ -33,15 +33,15 @@ async def insert(db: aiosqlite.Connection, task_id: str, title: str, prompt: str
                  agent_id: Optional[str], permissions_json: str,
                  schedule: Optional[str], next_run_at: Optional[str],
                  max_retries: int, retry_delay_seconds: int,
-                 sandbox: str = "") -> None:
+                 sandbox: str = "", secret_keys_json: str = "[]") -> None:
     await db.execute(
         """INSERT INTO tasks (id, title, prompt, model, priority, work_dir, flow_id,
                               agent_id, permissions, schedule, next_run_at,
-                              max_retries, retry_delay_seconds, sandbox)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                              max_retries, retry_delay_seconds, sandbox, secret_keys)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (task_id, title, prompt, model, priority, work_dir, flow_id,
          agent_id, permissions_json, schedule, next_run_at,
-         max_retries, retry_delay_seconds, sandbox),
+         max_retries, retry_delay_seconds, sandbox, secret_keys_json),
     )
 
 
@@ -49,26 +49,28 @@ async def insert_quick(db: aiosqlite.Connection, task_id: str, title: str,
                         prompt: str, model: str, work_dir: str, flow_id: str,
                         permissions_json: str, schedule: Optional[str],
                         next_run_at: Optional[str], max_retries: int,
-                        retry_delay_seconds: int, sandbox: str = "") -> None:
+                        retry_delay_seconds: int, sandbox: str = "",
+                        secret_keys_json: str = "[]") -> None:
     await db.execute(
         """INSERT INTO tasks (id, title, prompt, model, work_dir, flow_id,
                               permissions, schedule, next_run_at,
-                              max_retries, retry_delay_seconds, sandbox)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                              max_retries, retry_delay_seconds, sandbox, secret_keys)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (task_id, title, prompt, model, work_dir, flow_id,
          permissions_json, schedule, next_run_at, max_retries,
-         retry_delay_seconds, sandbox),
+         retry_delay_seconds, sandbox, secret_keys_json),
     )
 
 
 async def insert_spawned(db: aiosqlite.Connection, task_id: str, title: str,
                           prompt: str, model: str, priority: int, work_dir: str,
                           flow_id: str, permissions_json: str,
-                          agent_id: str, sandbox: str = "") -> None:
+                          agent_id: str, sandbox: str = "",
+                          secret_keys_json: str = "[]") -> None:
     await db.execute(
-        """INSERT INTO tasks (id, title, prompt, model, priority, work_dir, flow_id, permissions, agent_id, sandbox)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (task_id, title, prompt, model, priority, work_dir, flow_id, permissions_json, agent_id, sandbox),
+        """INSERT INTO tasks (id, title, prompt, model, priority, work_dir, flow_id, permissions, agent_id, sandbox, secret_keys)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (task_id, title, prompt, model, priority, work_dir, flow_id, permissions_json, agent_id, sandbox, secret_keys_json),
     )
 
 

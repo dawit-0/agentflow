@@ -2,11 +2,12 @@
 
 import asyncio
 import json
+import os
 import shutil
 from typing import AsyncIterator, Optional
 
 from .base import BaseProvider, ProviderEvent
-from .sandbox import SandboxConfig, docker_run_prefix, prepare_auth_dir
+from .sandbox import SandboxConfig, docker_run_prefix, prepare_auth_dir, prepare_env_file
 
 
 def _build_allowed_tools(permissions: dict) -> list[str]:
@@ -53,6 +54,7 @@ class ClaudeProvider(BaseProvider):
         self.container_name: Optional[str] = None
         self.total_cost_usd: float = 0.0
         self._auth_dir: Optional[str] = None
+        self._env_file: Optional[str] = None
 
     async def execute(
         self,
@@ -61,18 +63,22 @@ class ClaudeProvider(BaseProvider):
         work_dir: str,
         permissions: dict,
         sandbox: Optional[SandboxConfig] = None,
+        env: Optional[dict[str, str]] = None,
     ) -> AsyncIterator[ProviderEvent]:
         claude_cmd = _build_claude_cmd(model, permissions)
         spawn_cwd: Optional[str] = None
+        spawn_env: Optional[dict] = None
         sandbox_event_extra: dict = {}
 
         if sandbox and sandbox.enabled:
             container_name = sandbox.container_name or "agentflow-run"
             self.container_name = container_name
             self._auth_dir = prepare_auth_dir()
+            if env:
+                self._env_file = prepare_env_file(env)
             cmd = docker_run_prefix(
                 sandbox, work_dir, permissions, container_name,
-                auth_dir=self._auth_dir,
+                auth_dir=self._auth_dir, env_file=self._env_file,
             ) + claude_cmd
             sandbox_event_extra = {
                 "sandbox": "docker",
@@ -82,6 +88,8 @@ class ClaudeProvider(BaseProvider):
         else:
             cmd = claude_cmd
             spawn_cwd = work_dir or None
+            if env:
+                spawn_env = {**os.environ, **env}
 
         try:
             self.proc = await asyncio.create_subprocess_exec(
@@ -90,6 +98,7 @@ class ClaudeProvider(BaseProvider):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=spawn_cwd,
+                env=spawn_env,
             )
         except Exception:
             self._cleanup_auth_dir()
@@ -170,6 +179,12 @@ class ClaudeProvider(BaseProvider):
         if self._auth_dir:
             shutil.rmtree(self._auth_dir, ignore_errors=True)
             self._auth_dir = None
+        if self._env_file:
+            try:
+                os.remove(self._env_file)
+            except OSError:
+                pass
+            self._env_file = None
 
     async def cancel(self) -> None:
         # When sandboxed, the host process is the `docker` client. Stopping the
