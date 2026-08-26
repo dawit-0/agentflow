@@ -25,8 +25,11 @@ class OpenAIProvider(BaseProvider):
         work_dir: str,
         permissions: dict,
         sandbox: Optional[SandboxConfig] = None,
+        env: Optional[dict[str, str]] = None,
     ) -> AsyncIterator[ProviderEvent]:
-        api_key = os.environ.get("OPENAI_API_KEY")
+        # A task-level OPENAI_API_KEY secret overrides the host's own env var —
+        # lets different tasks use different OpenAI accounts/projects.
+        api_key = (env or {}).get("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
         if not api_key:
             self.exit_code = 1
             self.stderr_data = "OPENAI_API_KEY environment variable is not set"

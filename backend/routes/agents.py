@@ -20,6 +20,10 @@ def _parse_agent_row(row):
         agent["default_permissions"] = json.loads(agent.get("default_permissions") or "{}")
     except (json.JSONDecodeError, TypeError):
         agent["default_permissions"] = {}
+    try:
+        agent["default_secret_keys"] = json.loads(agent.get("default_secret_keys") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        agent["default_secret_keys"] = []
     return agent
 
 
@@ -69,6 +73,7 @@ async def create_agent(body: AgentCreate):
             json.dumps(body.context), body.default_model,
             json.dumps(permissions), body.default_work_dir, body.default_flow_id,
             default_sandbox=body.default_sandbox or "",
+            default_secret_keys_json=json.dumps(body.default_secret_keys or []),
         )
         await db.commit()
         row = await db_agents.get_by_id(db, agent_id)
@@ -85,7 +90,7 @@ async def update_agent(agent_id: str, body: AgentUpdate):
         params = []
         for field, value in body.model_dump(exclude_none=True).items():
             updates.append(f"{field} = ?")
-            if field in ("context", "default_permissions"):
+            if field in ("context", "default_permissions", "default_secret_keys"):
                 params.append(json.dumps(value))
             else:
                 params.append(value)
@@ -136,6 +141,7 @@ async def spawn_task(agent_id: str, body: SpawnTask):
         work_dir = body.work_dir if body.work_dir is not None else agent["default_work_dir"]
         flow_id = body.flow_id if body.flow_id is not None else agent["default_flow_id"]
         sandbox = body.sandbox if body.sandbox is not None else (agent.get("default_sandbox") or "")
+        secret_keys = body.secret_keys if body.secret_keys is not None else (agent.get("default_secret_keys") or [])
 
         # Auto-create a flow if none provided
         if not flow_id:
@@ -148,7 +154,8 @@ async def spawn_task(agent_id: str, body: SpawnTask):
         await db_tasks.insert_spawned(db, task_id, body.title, merged_prompt,
                                        model, body.priority, work_dir, flow_id,
                                        permissions_json, agent_id,
-                                       sandbox=sandbox)
+                                       sandbox=sandbox,
+                                       secret_keys_json=json.dumps(secret_keys))
 
         # Insert dependency rows
         depends_on = list(body.depends_on or [])
@@ -172,6 +179,10 @@ async def spawn_task(agent_id: str, body: SpawnTask):
             task_result["permissions"] = json.loads(task_result.get("permissions") or "{}")
         except (json.JSONDecodeError, TypeError):
             task_result["permissions"] = DEFAULT_PERMISSIONS
+        try:
+            task_result["secret_keys"] = json.loads(task_result.get("secret_keys") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            task_result["secret_keys"] = []
         if run:
             task_result["triggered_run"] = run
         return task_result

@@ -2,7 +2,7 @@ import React from "react";
 import { AppNotification } from "../api";
 import NotificationBell from "./NotificationBell";
 
-export type HeaderView = "flows" | "agents" | "settings" | "dashboard" | "notifications";
+export type HeaderView = "flows" | "agents" | "secrets" | "settings" | "dashboard" | "notifications";
 
 interface Props {
   view: HeaderView;
@@ -64,6 +64,12 @@ export default function Header({
             onClick={() => onViewChange("agents")}
           >
             Agent Registry
+          </button>
+          <button
+            className={`header-tab${view === "secrets" ? " active" : ""}`}
+            onClick={() => onViewChange("secrets")}
+          >
+            Secrets
           </button>
         </div>
       </div>

@@ -3,7 +3,7 @@
 import json
 import os
 
-from providers.sandbox import SandboxConfig, docker_run_prefix, prepare_auth_dir
+from providers.sandbox import SandboxConfig, docker_run_prefix, prepare_auth_dir, prepare_env_file
 
 
 def _cfg(**kw) -> SandboxConfig:
@@ -101,6 +101,32 @@ def test_auth_dir_mounts_credentials_rw(tmp_path):
     # session/project state without silently failing.
     assert f"{auth_dir}/claude_home:/home/agent/.claude" in cmd
     assert f"{auth_dir}/.claude.json:/home/agent/.claude.json" in cmd
+
+
+def test_no_env_file_flag_when_no_secrets():
+    cmd = docker_run_prefix(_cfg(), "/w", {"file_read": True}, "agentflow-test")
+    assert "--env-file" not in cmd
+
+
+def test_env_file_flag_present_when_secrets_given(tmp_path):
+    env_file = str(tmp_path / "env")
+    open(env_file, "w").close()
+    cmd = docker_run_prefix(_cfg(), "/w", {"file_read": True}, "agentflow-test", env_file=env_file)
+    assert "--env-file" in cmd
+    assert cmd[cmd.index("--env-file") + 1] == env_file
+
+
+def test_prepare_env_file_writes_key_value_pairs():
+    path = prepare_env_file({"GITHUB_TOKEN": "ghp_abc", "SLACK_WEBHOOK": "https://hooks/x"})
+    try:
+        with open(path) as f:
+            content = f.read()
+        assert "GITHUB_TOKEN=ghp_abc" in content
+        assert "SLACK_WEBHOOK=https://hooks/x" in content
+        # Private — secrets shouldn't be world/group readable on disk
+        assert oct(os.stat(path).st_mode)[-3:] == "600"
+    finally:
+        os.remove(path)
 
 
 def test_prepare_auth_dir_writes_required_files(tmp_path, monkeypatch):

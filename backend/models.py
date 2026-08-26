@@ -49,6 +49,7 @@ class TaskCreate(BaseModel):
     retry_delay_seconds: int = 10
     trigger: bool = False
     sandbox: Optional[str] = None
+    secret_keys: Optional[list[str]] = None
 
 
 class TaskUpdate(BaseModel):
@@ -65,6 +66,7 @@ class TaskUpdate(BaseModel):
     max_retries: Optional[int] = None
     retry_delay_seconds: Optional[int] = None
     sandbox: Optional[str] = None
+    secret_keys: Optional[list[str]] = None
 
 
 class TaskTrigger(BaseModel):
@@ -107,6 +109,7 @@ class AgentCreate(BaseModel):
     default_work_dir: str = ""
     default_flow_id: Optional[str] = None
     default_sandbox: Optional[str] = None
+    default_secret_keys: Optional[list[str]] = None
 
 
 class AgentUpdate(BaseModel):
@@ -119,6 +122,7 @@ class AgentUpdate(BaseModel):
     default_work_dir: Optional[str] = None
     default_flow_id: Optional[str] = None
     default_sandbox: Optional[str] = None
+    default_secret_keys: Optional[list[str]] = None
 
 
 class SpawnTask(BaseModel):
@@ -132,6 +136,7 @@ class SpawnTask(BaseModel):
     depends_on: Optional[list[str]] = None
     trigger: bool = True  # whether to immediately trigger a run
     sandbox: Optional[str] = None
+    secret_keys: Optional[list[str]] = None
 
 
 class QuickTaskCreate(BaseModel):
@@ -145,7 +150,19 @@ class QuickTaskCreate(BaseModel):
     retry_delay_seconds: int = 10
     trigger: bool = True
     sandbox: Optional[str] = None
+    secret_keys: Optional[list[str]] = None
 
 
 class AnswerCreate(BaseModel):
     answer: str
+
+
+class SecretCreate(BaseModel):
+    key: str
+    value: str
+    description: str = ""
+
+
+class SecretUpdate(BaseModel):
+    value: Optional[str] = None
+    description: Optional[str] = None

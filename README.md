@@ -35,6 +35,7 @@ Open **http://localhost:5173**.
 - **Scheduling** — Cron-based triggers on tasks or flows, with common presets (hourly, daily, weekdays, weekly, monthly).
 - **Permissions** — Per-agent tool access: Read Only, Standard, or Full Access (enforced via Claude CLI `--allowedTools`).
 - **Sandbox** — Optional Docker isolation per run: disposable container, bind-mounted work directory, restricted network, resource caps. See [Sandbox mode](#sandbox-mode).
+- **Secrets** — Encrypted-at-rest credential store. Save an API key or token once, then opt individual tasks or agents into it by name; it's injected as an environment variable only into the runs that ask for it. See [Secrets](#secrets).
 - **Analytics** — Built-in dashboard for run volume, success rate, cost, and top failing tasks.
 - **Notifications** — In-app alerts for run completion, failures, and schedule events.
 
@@ -96,3 +97,28 @@ are auto-removed on exit (`docker run --rm`).
 
 **Note:** OpenAI tasks bypass the sandbox — they make HTTP calls only and have
 no local filesystem access to isolate.
+
+## Secrets
+
+A place to store the API keys and tokens your agents need — a GitHub PAT for
+a `gh` CLI call, a Slack webhook, a third-party API key — without pasting
+them into prompts or `.env` files inside a task's working directory, where
+they'd sit in plaintext and could leak into agent output or git history.
+
+**Add one:** Secrets tab → New Secret. Give it a key (the environment
+variable name the agent will see, e.g. `GITHUB_TOKEN`) and the value. The
+value is encrypted at rest with a locally-generated key
+(`backend/.secret_key`, git-ignored) and is never shown or returned by the
+API again after creation — only the key name and description are.
+
+**Use one:** open a task or agent's form and check the secrets it needs
+under "Secrets" / "Default Secrets". Only the secrets a task explicitly
+selects are exposed to it, as environment variables, for that run only —
+nothing is granted by default. Agent defaults are inherited by tasks spawned
+from that agent unless a task overrides them.
+
+**How it's delivered:** on the host, secrets are merged into the subprocess
+environment (never passed as command-line arguments, so they don't leak via
+`ps`). Under Docker sandbox mode, they're written to a private, run-scoped
+`--env-file` instead of `-e KEY=VALUE` flags, for the same reason, and the
+file is deleted once the container has started.

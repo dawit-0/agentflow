@@ -13,6 +13,7 @@ import NewFlowModal from "./components/NewFlowModal";
 import SettingsPage from "./components/SettingsPage";
 import DashboardPage from "./components/DashboardPage";
 import NotificationsPage from "./components/NotificationsPage";
+import SecretsPage from "./components/SecretsPage";
 import { useNotifications } from "./hooks/useNotifications";
 
 export interface TaskPrefill {
@@ -30,7 +31,7 @@ export default function App() {
   const [flows, setFlows] = useState<Flow[]>([]);
   const [selectedFlow, setSelectedFlow] = useState<string | null>(null);
   const [showTaskForm, setShowTaskForm] = useState(false);
-  const [view, setView] = useState<"flows" | "agents" | "settings" | "dashboard" | "notifications">("dashboard");
+  const [view, setView] = useState<"flows" | "agents" | "secrets" | "settings" | "dashboard" | "notifications">("dashboard");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [showAgentForm, setShowAgentForm] = useState(false);
@@ -230,6 +231,8 @@ export default function App() {
                 setShowAgentForm(true);
               }}
             />
+          ) : view === "secrets" ? (
+            <SecretsPage />
           ) : selectedFlow ? (
             <TaskFlowView
               selectedFlow={selectedFlow}

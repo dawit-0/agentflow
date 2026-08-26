@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { api, Task, Flow, Model, Permissions, PERMISSION_PRESETS } from "../api";
+import { api, Task, Flow, Model, Permissions, PERMISSION_PRESETS, Secret } from "../api";
 import { TaskPrefill } from "../App";
 
 interface Props {
@@ -40,6 +40,11 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
   useEffect(() => {
     api.models.list().then(setModels).catch(() => {});
   }, []);
+  const [secrets, setSecrets] = useState<Secret[]>([]);
+  useEffect(() => {
+    api.secrets.list().then(setSecrets).catch(() => {});
+  }, []);
+  const [secretKeys, setSecretKeys] = useState<string[]>([]);
   const [workDir, setWorkDir] = useState(prefill?.workDir || "");
   const [permissions, setPermissions] = useState<Permissions>(
     prefill?.permissions?.preset ? prefill.permissions : PERMISSION_PRESETS["standard"]
@@ -106,6 +111,7 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
           depends_on: dependsOn.length > 0 ? dependsOn : undefined,
           trigger: triggerNow,
           sandbox: sandboxValue,
+          secret_keys: secretKeys.length > 0 ? secretKeys : undefined,
         });
       } else {
         const task = await api.tasks.create({
@@ -122,6 +128,7 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
           max_retries: maxRetries > 0 ? maxRetries : undefined,
           retry_delay_seconds: maxRetries > 0 ? retryDelay : undefined,
           sandbox: sandboxValue,
+          secret_keys: secretKeys.length > 0 ? secretKeys : undefined,
         } as Parameters<typeof api.tasks.create>[0]);
 
         // Trigger immediately if requested and no schedule
@@ -438,6 +445,43 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
                 ? "This run will execute as a host subprocess."
                 : "Inherits the global Sandbox setting."}
             </p>
+          </div>
+
+          <div className="form-group">
+            <label>Secrets (optional)</label>
+            {secrets.length === 0 ? (
+              <p className="field-hint">
+                No secrets configured yet. Add some from the Secrets page to expose them
+                here as environment variables.
+              </p>
+            ) : (
+              <>
+                <div className="secret-picker-list">
+                  {secrets.map((s) => (
+                    <label key={s.id} className="permission-toggle">
+                      <input
+                        type="checkbox"
+                        checked={secretKeys.includes(s.key)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSecretKeys([...secretKeys, s.key]);
+                          } else {
+                            setSecretKeys(secretKeys.filter((k) => k !== s.key));
+                          }
+                        }}
+                      />
+                      <span>{s.key}</span>
+                      {s.description && <span className="text-muted"> — {s.description}</span>}
+                    </label>
+                  ))}
+                </div>
+                <p className="field-hint">
+                  {isSpawn && secretKeys.length === 0
+                    ? "Leave unchecked to inherit the agent's default secrets."
+                    : "Selected secrets are exposed to the agent as environment variables."}
+                </p>
+              </>
+            )}
           </div>
 
           <div className="form-actions">

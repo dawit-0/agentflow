@@ -81,12 +81,30 @@ def prepare_auth_dir() -> str:
     return tmpdir
 
 
+def prepare_env_file(env: dict[str, str]) -> str:
+    """Write secret env vars to a private tmpfile for ``docker run --env-file``.
+
+    Passing secrets via ``-e KEY=VALUE`` on the ``docker`` command line would
+    leak them to anything reading the host's process list (``ps aux``); an
+    env file avoids that. Caller must delete the file once the container has
+    started (``docker run`` reads it at container creation, not afterward).
+    """
+    fd, path = tempfile.mkstemp(prefix="agentflow-env-")
+    with os.fdopen(fd, "w") as f:
+        for key, value in env.items():
+            # Docker env-file format has no quoting — newlines aren't representable.
+            f.write(f"{key}={value.replace(chr(10), ' ')}\n")
+    os.chmod(path, 0o600)
+    return path
+
+
 def docker_run_prefix(
     cfg: SandboxConfig,
     work_dir: str,
     permissions: dict,
     container_name: str,
     auth_dir: Optional[str] = None,
+    env_file: Optional[str] = None,
 ) -> list[str]:
     """Build the ``docker run …`` prefix that wraps the inner command.
 
@@ -134,6 +152,9 @@ def docker_run_prefix(
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if api_key:
         cmd.extend(["-e", f"ANTHROPIC_API_KEY={api_key}"])
+
+    if env_file:
+        cmd.extend(["--env-file", env_file])
 
     cmd.append(cfg.image)
     return cmd

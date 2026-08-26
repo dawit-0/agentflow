@@ -51,6 +51,26 @@ async def test_get_task_not_found(client):
     assert resp.status_code == 404
 
 
+async def test_create_task_with_secret_keys(client):
+    data = await _create_task(client, secret_keys=["GITHUB_TOKEN", "SLACK_WEBHOOK"])
+    assert data["secret_keys"] == ["GITHUB_TOKEN", "SLACK_WEBHOOK"]
+
+    resp = await client.get(f"/api/tasks/{data['id']}")
+    assert resp.json()["secret_keys"] == ["GITHUB_TOKEN", "SLACK_WEBHOOK"]
+
+
+async def test_create_task_default_secret_keys_empty(client):
+    data = await _create_task(client)
+    assert data["secret_keys"] == []
+
+
+async def test_update_task_secret_keys(client):
+    task = await _create_task(client)
+    resp = await client.patch(f"/api/tasks/{task['id']}", json={"secret_keys": ["A", "B"]})
+    assert resp.status_code == 200
+    assert resp.json()["secret_keys"] == ["A", "B"]
+
+
 async def test_list_tasks(client):
     await _create_task(client, title="A")
     await _create_task(client, title="B")

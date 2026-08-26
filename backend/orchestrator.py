@@ -13,7 +13,7 @@ from database import get_db
 from db import tasks as db_tasks, task_runs as db_task_runs, flows as db_flows
 from db import task_run_output as db_output, task_dependencies as db_deps
 from db import task_xcom as db_xcom, flow_runs as db_flow_runs
-from db import settings as db_settings
+from db import settings as db_settings, secrets as db_secrets
 from logging_config import get_logger, task_logger
 from models import DEFAULT_PERMISSIONS
 from notifications import maybe_notify_run_finished, notify_flow_completed
@@ -191,6 +191,19 @@ class Orchestrator:
             cfg.container_name = f"agentflow-{run['id'][:12]}"
         return cfg
 
+    async def _resolve_secret_env(self, db, run: dict) -> dict[str, str]:
+        """Resolve the task's selected secret keys to decrypted values.
+
+        Only the keys a task explicitly opted into (its ``secret_keys`` list)
+        are exposed — a task with none configured gets no secret env vars."""
+        try:
+            keys = json.loads(run.get("task_secret_keys") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            keys = []
+        if not keys:
+            return {}
+        return await db_secrets.get_values_for_keys(db, keys)
+
     async def _build_prompt_with_context(self, db, task_id: str, base_prompt: str,
                                          flow_run_id: Optional[str] = None) -> str:
         """Prepend upstream task outputs to the prompt for inter-task data passing.
@@ -275,6 +288,7 @@ class Orchestrator:
                                                     sandbox_cfg.mode,
                                                     sandbox_cfg.container_name)
                     await db.commit()
+                env = await self._resolve_secret_env(db, run)
             finally:
                 await db.close()
 
@@ -298,7 +312,8 @@ class Orchestrator:
             # `sandbox: docker` event marker only appears for ClaudeProvider.
             run_sandbox = sandbox_cfg if (sandbox_cfg.enabled and provider_name != "openai") else None
 
-            async for event in provider.execute(prompt, model, work_dir, permissions, sandbox=run_sandbox):
+            async for event in provider.execute(prompt, model, work_dir, permissions,
+                                                 sandbox=run_sandbox, env=env):
                 seq += 1
 
                 # Track PID for subprocess-based providers
