@@ -33,15 +33,19 @@ async def insert(db: aiosqlite.Connection, task_id: str, title: str, prompt: str
                  agent_id: Optional[str], permissions_json: str,
                  schedule: Optional[str], next_run_at: Optional[str],
                  max_retries: int, retry_delay_seconds: int,
-                 sandbox: str = "") -> None:
+                 sandbox: str = "", task_type: str = "agent",
+                 approval_timeout_seconds: Optional[int] = None,
+                 approval_default: str = "reject") -> None:
     await db.execute(
         """INSERT INTO tasks (id, title, prompt, model, priority, work_dir, flow_id,
                               agent_id, permissions, schedule, next_run_at,
-                              max_retries, retry_delay_seconds, sandbox)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                              max_retries, retry_delay_seconds, sandbox,
+                              task_type, approval_timeout_seconds, approval_default)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (task_id, title, prompt, model, priority, work_dir, flow_id,
          agent_id, permissions_json, schedule, next_run_at,
-         max_retries, retry_delay_seconds, sandbox),
+         max_retries, retry_delay_seconds, sandbox,
+         task_type, approval_timeout_seconds, approval_default),
     )
 
 
@@ -94,7 +98,7 @@ async def get_dag_nodes(db: aiosqlite.Connection,
     if flow_id:
         cursor = await db.execute(
             """SELECT t.id, t.title, t.status, t.model, t.schedule, t.max_retries, t.retry_delay_seconds,
-                      t.created_at, t.updated_at,
+                      t.task_type, t.created_at, t.updated_at,
                       tr.status as latest_run_status, tr.run_number as latest_run_number,
                       tr.attempt_number, tr.trigger as latest_run_trigger
                FROM tasks t
@@ -107,7 +111,7 @@ async def get_dag_nodes(db: aiosqlite.Connection,
     else:
         cursor = await db.execute(
             """SELECT t.id, t.title, t.status, t.model, t.schedule, t.max_retries, t.retry_delay_seconds,
-                      t.created_at, t.updated_at,
+                      t.task_type, t.created_at, t.updated_at,
                       tr.status as latest_run_status, tr.run_number as latest_run_number,
                       tr.attempt_number, tr.trigger as latest_run_trigger
                FROM tasks t

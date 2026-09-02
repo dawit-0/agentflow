@@ -97,6 +97,9 @@ async def _init_test_db():
                 max_retries INTEGER DEFAULT 0,
                 retry_delay_seconds INTEGER DEFAULT 10,
                 sandbox TEXT DEFAULT '',
+                task_type TEXT DEFAULT 'agent',
+                approval_timeout_seconds INTEGER,
+                approval_default TEXT DEFAULT 'reject',
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             );
@@ -148,6 +151,7 @@ async def _init_test_db():
                 task_id TEXT NOT NULL REFERENCES tasks(id),
                 question TEXT NOT NULL,
                 answer TEXT,
+                note TEXT,
                 status TEXT DEFAULT 'pending' CHECK(status IN ('pending','answered','timeout')),
                 created_at TEXT DEFAULT (datetime('now')),
                 answered_at TEXT

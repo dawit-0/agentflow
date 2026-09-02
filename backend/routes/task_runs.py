@@ -1,7 +1,9 @@
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 from database import get_db
 from db import task_runs as db_task_runs, task_run_output as db_output
-from db import task_xcom as db_xcom
+from db import task_xcom as db_xcom, questions as db_questions
+from models import ApprovalAnswer
 
 router = APIRouter(prefix="/api/task-runs", tags=["task-runs"])
 
@@ -57,3 +59,27 @@ async def get_run_xcom(run_id: str):
         return {"run_id": run_id, "xcom": entries}
     finally:
         await db.close()
+
+
+@router.get("/{run_id}/question")
+async def get_run_question(run_id: str):
+    """Get the latest approval-gate question for a run, if any."""
+    db = await get_db()
+    try:
+        row = await db_questions.get_latest_for_run(db, run_id)
+        return {"run_id": run_id, "question": dict(row) if row else None}
+    finally:
+        await db.close()
+
+
+@router.post("/{run_id}/answer")
+async def answer_run(run_id: str, body: ApprovalAnswer):
+    """Resolve a paused approval-gate run with a human decision."""
+    if body.decision not in ("approve", "reject"):
+        return JSONResponse({"error": "decision must be 'approve' or 'reject'"}, status_code=400)
+
+    from main import orchestrator
+    try:
+        return await orchestrator.answer_approval(run_id, body.decision, body.note)
+    except LookupError as e:
+        return JSONResponse({"error": str(e)}, status_code=404)

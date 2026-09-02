@@ -65,6 +65,34 @@ async def maybe_notify_run_finished(
     return record
 
 
+async def notify_approval_needed(
+    db: aiosqlite.Connection,
+    sio,
+    *,
+    task: dict,
+    task_run_id: str,
+    question: str,
+) -> Optional[dict]:
+    """Create a notification when an approval-gate task is waiting on a human
+    decision. Unlike run-finished notifications, this always fires — an
+    approval gate nobody hears about would stall its flow silently."""
+    task_title = task.get("title") or task.get("id", "")[:8]
+
+    record = await db_notifications.insert(
+        db,
+        kind="approval_needed",
+        severity="warning",
+        title=f"Approval needed: {task_title}",
+        body=(question or "")[:MAX_BODY_LEN] or None,
+        task_id=task.get("id"),
+        task_run_id=task_run_id,
+        flow_id=task.get("flow_id"),
+    )
+    count = await db_notifications.unread_count(db)
+    await _emit_new(sio, record, count)
+    return record
+
+
 async def notify_flow_completed(
     db: aiosqlite.Connection,
     sio,

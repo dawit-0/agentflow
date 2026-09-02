@@ -90,6 +90,8 @@ function layoutGraph(
         maxRetries: n.max_retries || 0,
         attemptNumber: n.attempt_number,
         latestRunTrigger: n.latest_run_trigger,
+        taskType: n.task_type,
+        waitingInput: n.waiting_input,
       },
     };
   });

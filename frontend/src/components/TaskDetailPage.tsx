@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { api, Task, TaskRun, TaskRunOutput, UpstreamContextItem } from "../api";
+import { api, Task, TaskRun, TaskRunOutput, UpstreamContextItem, Question } from "../api";
 import { socket } from "../socket";
 
 const INITIAL_TAIL = 200;
@@ -87,6 +87,9 @@ export default function TaskDetailPage({
   const [deps, setDeps] = useState<{ depends_on: string[] }>({ depends_on: [] });
   const [upstreamContext, setUpstreamContext] = useState<UpstreamContextItem[]>([]);
   const [contextExpanded, setContextExpanded] = useState(false);
+  const [pendingQuestion, setPendingQuestion] = useState<Question | null>(null);
+  const [approvalNote, setApprovalNote] = useState("");
+  const [answering, setAnswering] = useState(false);
 
   // Ref mirrors of state used inside socket handlers so we don't have to
   // re-subscribe on every render.
@@ -125,6 +128,56 @@ export default function TaskDetailPage({
     loadDeps();
     loadUpstreamContext();
   }, [loadTask, loadRuns, loadDeps, loadUpstreamContext]);
+
+  // Approval gates: load the pending question for the selected run, if any,
+  // and clear it once answered (locally or from another client).
+  useEffect(() => {
+    const run = runs[selectedRunIdx];
+    if (!task || task.task_type !== "approval" || !run || run.status !== "running") {
+      setPendingQuestion(null);
+      return;
+    }
+    let cancelled = false;
+    api.taskRuns.question(run.id).then((res) => {
+      if (cancelled) return;
+      setPendingQuestion(res.question && res.question.status === "pending" ? res.question : null);
+    }).catch(() => {
+      if (!cancelled) setPendingQuestion(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [task, runs, selectedRunIdx]);
+
+  useEffect(() => {
+    function onQuestionAnswered(data: { run_id: string }) {
+      const run = runs[selectedRunIdx];
+      if (run && data.run_id === run.id) {
+        setPendingQuestion(null);
+        loadRuns();
+        loadTask();
+      }
+    }
+    socket.on("question:answered", onQuestionAnswered);
+    return () => {
+      socket.off("question:answered", onQuestionAnswered);
+    };
+  }, [runs, selectedRunIdx, loadRuns, loadTask]);
+
+  async function handleAnswer(decision: "approve" | "reject") {
+    const run = runs[selectedRunIdx];
+    if (!run) return;
+    setAnswering(true);
+    try {
+      await api.taskRuns.answer(run.id, decision, approvalNote.trim() || undefined);
+      setApprovalNote("");
+      setPendingQuestion(null);
+      await loadRuns();
+      await loadTask();
+    } finally {
+      setAnswering(false);
+    }
+  }
 
   // Load output when selected run changes — fetch the tail, then live-tail
   // appended entries over socket.io.
@@ -274,7 +327,9 @@ export default function TaskDetailPage({
 
       {/* Meta row */}
       <div className="task-detail-meta">
-        <span className="task-detail-meta-item">{task.model}</span>
+        <span className="task-detail-meta-item">
+          {task.task_type === "approval" ? "Approval gate" : task.model}
+        </span>
         {task.schedule && (
           <span className="task-detail-meta-item">Schedule: {task.schedule}</span>
         )}
@@ -283,6 +338,39 @@ export default function TaskDetailPage({
           <span className="task-detail-meta-item">Flow: {task.flow_id.slice(0, 8)}</span>
         )}
       </div>
+
+      {/* Approval gate: waiting for a human decision */}
+      {pendingQuestion && (
+        <div className="approval-gate-banner">
+          <div className="approval-gate-banner-header">
+            <span className="approval-gate-icon">&#x23f8;</span>
+            <span>This flow is paused, waiting for your decision</span>
+          </div>
+          <div className="approval-gate-question">{pendingQuestion.question}</div>
+          <textarea
+            className="approval-gate-note"
+            placeholder="Add a note (optional)"
+            value={approvalNote}
+            onChange={(e) => setApprovalNote(e.target.value)}
+          />
+          <div className="approval-gate-actions">
+            <button
+              className="btn btn-sm btn-danger"
+              disabled={answering}
+              onClick={() => handleAnswer("reject")}
+            >
+              Reject
+            </button>
+            <button
+              className="btn btn-sm btn-primary"
+              disabled={answering}
+              onClick={() => handleAnswer("approve")}
+            >
+              Approve
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Body: two columns */}
       <div className="task-detail-body">

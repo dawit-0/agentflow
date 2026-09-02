@@ -46,6 +46,10 @@ async def get_dag(flow_id: str = None):
         else:
             edges = []
 
+        pending_ids = await db_questions.list_pending_task_ids(db)
+        for n in nodes:
+            n["waiting_input"] = n["id"] in pending_ids
+
         return {"nodes": nodes, "edges": edges}
     finally:
         await db.close()
@@ -102,6 +106,14 @@ async def get_task(task_id: str):
         latest_run = await db_task_runs.get_latest(db, task_id)
         task["latest_run"] = dict(latest_run) if latest_run else None
 
+        # Approval gates: surface the pending question, if any, so the UI
+        # can render the approve/reject prompt without a second round trip.
+        task["pending_question"] = None
+        if task["latest_run"] and task.get("task_type") == "approval":
+            q = await db_questions.get_pending_for_run(db, task["latest_run"]["id"])
+            if q:
+                task["pending_question"] = dict(q)
+
         return task
     finally:
         await db.close()
@@ -122,6 +134,11 @@ async def _check_circular_dependency(db, task_id: str, upstream_ids: list[str]) 
 
 @router.post("")
 async def create_task(body: TaskCreate):
+    if body.task_type not in ("agent", "approval"):
+        return JSONResponse({"error": "task_type must be 'agent' or 'approval'"}, status_code=400)
+    if body.approval_default not in ("approve", "reject"):
+        return JSONResponse({"error": "approval_default must be 'approve' or 'reject'"}, status_code=400)
+
     task_id = str(uuid.uuid4())
     permissions = body.permissions if body.permissions else DEFAULT_PERMISSIONS
     permissions_json = json.dumps(permissions)
@@ -155,7 +172,10 @@ async def create_task(body: TaskCreate):
                                body.priority, body.work_dir, flow_id, body.agent_id,
                                permissions_json, body.schedule, next_run_at,
                                body.max_retries, body.retry_delay_seconds,
-                               sandbox=body.sandbox or "")
+                               sandbox=body.sandbox or "",
+                               task_type=body.task_type,
+                               approval_timeout_seconds=body.approval_timeout_seconds,
+                               approval_default=body.approval_default)
 
         for dep_id in depends_on:
             if dep_id != task_id:
@@ -179,6 +199,11 @@ async def create_task(body: TaskCreate):
 
 @router.patch("/{task_id}")
 async def update_task(task_id: str, body: TaskUpdate):
+    if body.task_type is not None and body.task_type not in ("agent", "approval"):
+        return JSONResponse({"error": "task_type must be 'agent' or 'approval'"}, status_code=400)
+    if body.approval_default is not None and body.approval_default not in ("approve", "reject"):
+        return JSONResponse({"error": "approval_default must be 'approve' or 'reject'"}, status_code=400)
+
     db = await get_db()
     try:
         updates = []

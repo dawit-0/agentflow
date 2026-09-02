@@ -47,6 +47,13 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
   const [showPermDetails, setShowPermDetails] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Task type: a normal agent run, or a human approval gate that pauses the
+  // flow until someone approves/rejects it.
+  const [taskType, setTaskType] = useState<"agent" | "approval">("agent");
+  const [approvalTimeoutMinutes, setApprovalTimeoutMinutes] = useState(0);
+  const [approvalDefault, setApprovalDefault] = useState<"approve" | "reject">("reject");
+  const isApproval = taskType === "approval";
+
   // Dependency state (multi-select)
   const [dependsOn, setDependsOn] = useState<string[]>([]);
   const [passOutput, setPassOutput] = useState(true);
@@ -122,6 +129,10 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
           max_retries: maxRetries > 0 ? maxRetries : undefined,
           retry_delay_seconds: maxRetries > 0 ? retryDelay : undefined,
           sandbox: sandboxValue,
+          task_type: taskType,
+          approval_timeout_seconds: isApproval && approvalTimeoutMinutes > 0
+            ? approvalTimeoutMinutes * 60 : undefined,
+          approval_default: isApproval ? approvalDefault : undefined,
         } as Parameters<typeof api.tasks.create>[0]);
 
         // Trigger immediately if requested and no schedule
@@ -141,6 +152,7 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
   function getSubmitLabel() {
     if (submitting) return "Creating...";
     if (isSpawn) return triggerNow ? "Spawn & Run" : "Spawn Task";
+    if (isApproval) return triggerNow ? "Create & Run Gate" : "Create Gate";
     if (hasSchedule) return "Create Scheduled Task";
     return triggerNow ? "Create & Run" : "Create Task";
   }
@@ -165,6 +177,33 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
         )}
 
         <form onSubmit={handleSubmit}>
+          {!isSpawn && (
+            <div className="form-group">
+              <label>Task Type</label>
+              <div className="permission-presets">
+                <button
+                  type="button"
+                  className={`btn btn-sm permission-preset-btn${!isApproval ? " active" : ""}`}
+                  onClick={() => setTaskType("agent")}
+                >
+                  Agent
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm permission-preset-btn${isApproval ? " active" : ""}`}
+                  onClick={() => setTaskType("approval")}
+                >
+                  Approval Gate
+                </button>
+              </div>
+              <p className="permission-description">
+                {isApproval
+                  ? "Pauses the flow and waits for a person to approve or reject before downstream tasks run. No model is called."
+                  : "Runs a prompt through an AI agent."}
+              </p>
+            </div>
+          )}
+
           <div className="form-group">
             <label>Title</label>
             <input
@@ -176,14 +215,55 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
           </div>
 
           <div className="form-group">
-            <label>Prompt</label>
+            <label>{isApproval ? "Question" : "Prompt"}</label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder={isSpawn ? "Describe the specific task..." : "Detailed instructions for the agent..."}
+              placeholder={
+                isApproval
+                  ? "What should the approver decide? e.g. \"Approve deployment to production?\""
+                  : isSpawn ? "Describe the specific task..." : "Detailed instructions for the agent..."
+              }
             />
+            {isApproval && (
+              <p className="field-hint">
+                Output from any upstream tasks this gate depends on is shown to the approver above this question.
+              </p>
+            )}
           </div>
 
+          {isApproval && (
+            <div className="form-group">
+              <label>Timeout (optional)</label>
+              <select
+                value={approvalTimeoutMinutes}
+                onChange={(e) => setApprovalTimeoutMinutes(Number(e.target.value))}
+                className="retry-select"
+              >
+                <option value={0}>No timeout — wait indefinitely</option>
+                <option value={15}>15 minutes</option>
+                <option value={60}>1 hour</option>
+                <option value={240}>4 hours</option>
+                <option value={1440}>24 hours</option>
+              </select>
+              {approvalTimeoutMinutes > 0 && (
+                <div className="retry-config-row" style={{ marginTop: 6 }}>
+                  <label className="retry-config-label">If nobody responds in time</label>
+                  <select
+                    value={approvalDefault}
+                    onChange={(e) => setApprovalDefault(e.target.value as "approve" | "reject")}
+                    className="retry-select"
+                  >
+                    <option value="reject">Auto-reject</option>
+                    <option value="approve">Auto-approve</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!isApproval && (
+          <>
           <div className="form-group">
             <label>Schedule (optional)</label>
             <div className="schedule-toggle">
@@ -262,6 +342,8 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
               </p>
             )}
           </div>
+          </>
+          )}
 
           {!hasSchedule && (
             <div className="form-group">
@@ -276,6 +358,7 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
             </div>
           )}
 
+          {!isApproval && (
           <div className="form-group">
             <label>Model</label>
             <select value={model} onChange={(e) => setModel(e.target.value)}>
@@ -295,7 +378,9 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
               ))}
             </select>
           </div>
+          )}
 
+          {!isApproval && (
           <div className="form-group">
             <label>Working Directory (optional)</label>
             <input
@@ -304,6 +389,7 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
               placeholder="/path/to/project"
             />
           </div>
+          )}
 
           {flowTasks.length > 0 && (
             <div className="form-group">
@@ -360,6 +446,8 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
             </div>
           )}
 
+          {!isApproval && (
+          <>
           <div className="form-group">
             <label>Permissions</label>
             <div className="permission-presets">
@@ -439,6 +527,8 @@ export default function TaskForm({ flows, tasks, selectedFlow, onClose, onCreate
                 : "Inherits the global Sandbox setting."}
             </p>
           </div>
+          </>
+          )}
 
           <div className="form-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose}>
