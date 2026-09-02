@@ -49,6 +49,9 @@ class TaskCreate(BaseModel):
     retry_delay_seconds: int = 10
     trigger: bool = False
     sandbox: Optional[str] = None
+    task_type: str = "agent"
+    approval_timeout_seconds: Optional[int] = None
+    approval_default: str = "reject"
 
 
 class TaskUpdate(BaseModel):
@@ -65,6 +68,9 @@ class TaskUpdate(BaseModel):
     max_retries: Optional[int] = None
     retry_delay_seconds: Optional[int] = None
     sandbox: Optional[str] = None
+    task_type: Optional[str] = None
+    approval_timeout_seconds: Optional[int] = None
+    approval_default: Optional[str] = None
 
 
 class TaskTrigger(BaseModel):
@@ -149,3 +155,8 @@ class QuickTaskCreate(BaseModel):
 
 class AnswerCreate(BaseModel):
     answer: str
+
+
+class ApprovalAnswer(BaseModel):
+    decision: str  # "approve" | "reject"
+    note: Optional[str] = None

@@ -13,10 +13,10 @@ from database import get_db
 from db import tasks as db_tasks, task_runs as db_task_runs, flows as db_flows
 from db import task_run_output as db_output, task_dependencies as db_deps
 from db import task_xcom as db_xcom, flow_runs as db_flow_runs
-from db import settings as db_settings
+from db import settings as db_settings, questions as db_questions
 from logging_config import get_logger, task_logger
 from models import DEFAULT_PERMISSIONS
-from notifications import maybe_notify_run_finished, notify_flow_completed
+from notifications import maybe_notify_run_finished, notify_flow_completed, notify_approval_needed
 from providers.sandbox import SandboxConfig
 
 logger = get_logger("orchestrator")
@@ -58,6 +58,7 @@ class Orchestrator:
                 await self._check_task_schedules()
                 await self._check_flow_schedules()
                 await self._check_flow_run_lifecycle()
+                await self._check_approval_timeouts()
                 await self._dispatch_queued_runs()
             except Exception:
                 logger.exception("poll cycle error")
@@ -151,6 +152,10 @@ class Orchestrator:
 
         logger.info("starting run=%s task=%s trigger=%s", run_id, task_id, run.get("trigger", "?"))
 
+        if run.get("task_type") == "approval":
+            await self._start_approval_run(db, run)
+            return
+
         await db_task_runs.set_running(db, run_id)
         await db.commit()
 
@@ -158,6 +163,135 @@ class Orchestrator:
         await self.sio.emit("task_run:started", {"id": run_id, "task_id": task_id})
 
         asyncio.create_task(self._execute_run(run_id, run))
+
+    async def _start_approval_run(self, db: aiosqlite.Connection, run: dict):
+        """Start an approval-gate run: no agent is invoked — the run pauses
+        with a pending question until a human calls ``answer_approval``."""
+        run_id = run["id"]
+        task_id = run["task_id"]
+        flow_run_id = run.get("flow_run_id")
+
+        question_text = await self._build_prompt_with_context(
+            db, task_id, run["prompt"], flow_run_id)
+
+        await db_task_runs.set_running(db, run_id)
+        question = await db_questions.insert(db, run_id, task_id, question_text)
+        await db.commit()
+
+        logger.info("approval gate run=%s task=%s awaiting decision", run_id, task_id)
+
+        await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": "running"})
+        await self.sio.emit("task_run:started",
+                            {"id": run_id, "task_id": task_id, "waiting_input": True})
+        await self.sio.emit("question:created",
+                            {"run_id": run_id, "task_id": task_id, "question": question})
+
+        task_row = await db_tasks.get_by_id(db, task_id)
+        if task_row:
+            try:
+                await notify_approval_needed(db, self.sio, task=dict(task_row),
+                                             task_run_id=run_id, question=question_text)
+                await db.commit()
+            except Exception:
+                logger.exception("approval notification failed for run=%s", run_id)
+
+    async def _resolve_approval(self, db: aiosqlite.Connection, run_id: str, task_id: str,
+                                flow_run_id: Optional[str], question_row: dict,
+                                decision: str, note: Optional[str] = None,
+                                auto: bool = False) -> None:
+        """Finish a paused approval run with a human (or timeout-default)
+        decision, then cascade like any other run completion."""
+        status = "success" if decision == "approve" else "failed"
+        result_lines = [f"Human decision: {decision}."]
+        if note:
+            result_lines.append(f"Note: {note}")
+        result_text = "\n".join(result_lines)
+
+        await db_output.insert(run_id, 1, "result", result_text)
+
+        if auto:
+            await db_questions.mark_timeout(db, question_row["id"], decision, note)
+        else:
+            await db_questions.answer(db, question_row["id"], decision, note)
+
+        await db_task_runs.set_finished(
+            db, run_id, status,
+            exit_code=0 if status == "success" else 1,
+            duration_ms=0, num_turns=1,
+            error_message=None if status == "success" else result_text,
+            cost_usd=0.0)
+
+        if status == "success":
+            await db_xcom.insert(db, run_id, task_id, "return_value", result_text)
+            await self._cascade_trigger_downstream(db, task_id, flow_run_id)
+        else:
+            await self._cascade_cancel_downstream(db, task_id, flow_run_id)
+
+        task_row = await db_tasks.get_by_id(db, task_id)
+        if task_row:
+            try:
+                await maybe_notify_run_finished(
+                    db, self.sio, task=dict(task_row), task_run_id=run_id,
+                    status=status, error_message=None if status == "success" else result_text)
+            except Exception:
+                logger.exception("per-run notification failed for run=%s", run_id)
+
+        if flow_run_id:
+            await self._finalize_flow_run(db, flow_run_id)
+
+        await self.sio.emit("task_run:finished", {"id": run_id, "task_id": task_id, "status": status})
+        await self.sio.emit("task:updated", {"id": task_id, "latest_run_status": status})
+        await self.sio.emit("question:answered",
+                            {"run_id": run_id, "task_id": task_id, "decision": decision})
+
+    async def answer_approval(self, run_id: str, decision: str,
+                              note: Optional[str] = None) -> dict:
+        """Resolve a pending approval gate with a human decision. Raises
+        LookupError if the run doesn't exist, isn't awaiting input, or has
+        no pending question (e.g. already answered)."""
+        if decision not in ("approve", "reject"):
+            raise ValueError("decision must be 'approve' or 'reject'")
+
+        db = await get_db()
+        try:
+            run_row = await db_task_runs.get_by_id(db, run_id)
+            if not run_row:
+                raise LookupError("run not found")
+            run_row = dict(run_row)
+            if run_row["status"] != "running":
+                raise LookupError("run is not awaiting input")
+
+            question_row = await db_questions.get_pending_for_run(db, run_id)
+            if not question_row:
+                raise LookupError("no pending question for this run")
+            question_row = dict(question_row)
+
+            await self._resolve_approval(db, run_id, run_row["task_id"],
+                                         run_row.get("flow_run_id"),
+                                         question_row, decision, note)
+            await db.commit()
+            return {"id": run_id, "task_id": run_row["task_id"],
+                    "status": "success" if decision == "approve" else "failed"}
+        finally:
+            await db.close()
+
+    async def _check_approval_timeouts(self):
+        """Auto-resolve pending approval gates whose timeout has elapsed,
+        using the task's configured default decision."""
+        db = await get_db()
+        try:
+            due = await db_questions.get_pending_with_timeout(db)
+            for row in due:
+                decision = row.get("approval_default") or "reject"
+                logger.info("approval timeout run=%s task=%s -> auto-%s",
+                           row["task_run_id"], row["task_id"], decision)
+                await self._resolve_approval(
+                    db, row["task_run_id"], row["task_id"], row.get("flow_run_id"),
+                    row, decision, note="Auto-resolved: no response before the timeout.",
+                    auto=True)
+                await db.commit()
+        finally:
+            await db.close()
 
     async def _emit_event(self, db, run_id: str, task_id: str, seq: int, event_data: dict):
         """Persist a lifecycle event to the run's output file and broadcast it."""

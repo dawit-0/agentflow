@@ -189,7 +189,8 @@ async def get_queued_ready(db: aiosqlite.Connection, limit: int) -> list[dict]:
     elapsed, whose flow run is dispatchable, and whose upstream deps are met
     within their flow run."""
     cursor = await db.execute(
-        f"""SELECT tr.*, t.prompt, t.model, t.work_dir, t.permissions, t.priority, t.sandbox AS task_sandbox
+        f"""SELECT tr.*, t.prompt, t.model, t.work_dir, t.permissions, t.priority, t.sandbox AS task_sandbox,
+                  t.task_type, t.approval_timeout_seconds, t.approval_default
            FROM task_runs tr
            JOIN tasks t ON t.id = tr.task_id
            LEFT JOIN flow_runs fr ON fr.id = tr.flow_run_id

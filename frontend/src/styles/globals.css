@@ -1866,9 +1866,29 @@ input, textarea, select {
   color: var(--text-muted);
 }
 
+.flow-node-status.waiting_input {
+  background: rgba(245, 158, 11, 0.14);
+  color: var(--warning);
+  animation: pulse 2s ease-in-out infinite;
+}
+
 .flow-node-meta {
   font-size: 0.7rem;
   color: var(--text-muted);
+}
+
+/* ===== Approval Gate Nodes ===== */
+.flow-node-approval {
+  border-style: dashed;
+}
+
+.flow-node-waiting_input {
+  border-color: var(--warning);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.3);
+}
+
+.approval-badge-sm {
+  color: var(--warning);
 }
 
 /* ===== Handles ===== */
@@ -2476,6 +2496,56 @@ input, textarea, select {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* ===== Approval Gate Banner ===== */
+.approval-gate-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 20px 16px;
+  padding: 14px 16px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-lg);
+}
+
+.approval-gate-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--warning);
+}
+
+.approval-gate-icon {
+  font-size: 1rem;
+}
+
+.approval-gate-question {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+
+.approval-gate-note {
+  width: 100%;
+  min-height: 60px;
+  resize: vertical;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.8125rem;
+}
+
+.approval-gate-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .task-detail-section-label {

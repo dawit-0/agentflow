@@ -75,6 +75,9 @@ async def init_db():
                 last_run_at TEXT,
                 max_retries INTEGER DEFAULT 0,
                 retry_delay_seconds INTEGER DEFAULT 10,
+                task_type TEXT DEFAULT 'agent',
+                approval_timeout_seconds INTEGER,
+                approval_default TEXT DEFAULT 'reject',
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             );
@@ -132,6 +135,7 @@ async def init_db():
                 task_id TEXT NOT NULL REFERENCES tasks(id),
                 question TEXT NOT NULL,
                 answer TEXT,
+                note TEXT,
                 status TEXT DEFAULT 'pending' CHECK(status IN ('pending','answered','timeout')),
                 created_at TEXT DEFAULT (datetime('now')),
                 answered_at TEXT
@@ -173,6 +177,10 @@ async def init_db():
             ("flows", "max_active_runs", "ALTER TABLE flows ADD COLUMN max_active_runs INTEGER DEFAULT 1"),
             ("task_runs", "flow_run_id", "ALTER TABLE task_runs ADD COLUMN flow_run_id TEXT REFERENCES flow_runs(id)"),
             ("task_runs", "not_before", "ALTER TABLE task_runs ADD COLUMN not_before TEXT"),
+            ("tasks", "task_type", "ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'agent'"),
+            ("tasks", "approval_timeout_seconds", "ALTER TABLE tasks ADD COLUMN approval_timeout_seconds INTEGER"),
+            ("tasks", "approval_default", "ALTER TABLE tasks ADD COLUMN approval_default TEXT DEFAULT 'reject'"),
+            ("questions", "note", "ALTER TABLE questions ADD COLUMN note TEXT"),
         ]:
             try:
                 await db.execute(ddl)

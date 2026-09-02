@@ -60,9 +60,25 @@ export interface Task {
   next_run_at: string | null;
   last_run_at: string | null;
   sandbox: string;
+  task_type: "agent" | "approval";
+  approval_timeout_seconds: number | null;
+  approval_default: "approve" | "reject";
   created_at: string;
   updated_at: string;
   latest_run?: TaskRun | null;
+  pending_question?: Question | null;
+}
+
+export interface Question {
+  id: string;
+  task_run_id: string;
+  task_id: string;
+  question: string;
+  answer: string | null;
+  note: string | null;
+  status: "pending" | "answered" | "timeout";
+  created_at: string;
+  answered_at: string | null;
 }
 
 export interface TaskRun {
@@ -123,6 +139,8 @@ export interface DagNode {
   schedule: string | null;
   max_retries: number;
   retry_delay_seconds: number;
+  task_type: "agent" | "approval";
+  waiting_input: boolean;
   latest_run_status: string | null;
   latest_run_number: number | null;
   attempt_number: number | null;
@@ -254,7 +272,8 @@ export type NotificationKind =
   | "task_failed"
   | "task_succeeded"
   | "flow_completed"
-  | "flow_failed";
+  | "flow_failed"
+  | "approval_needed";
 
 export interface AppNotification {
   id: string;
@@ -312,6 +331,9 @@ export const api = {
       max_retries?: number;
       retry_delay_seconds?: number;
       sandbox?: string;
+      task_type?: "agent" | "approval";
+      approval_timeout_seconds?: number;
+      approval_default?: "approve" | "reject";
     }) => request<Task>("/tasks", { method: "POST", body: JSON.stringify(data) }),
     update: (
       id: string,
@@ -327,6 +349,9 @@ export const api = {
         schedule: string;
         schedule_enabled: boolean;
         sandbox: string;
+        task_type: "agent" | "approval";
+        approval_timeout_seconds: number;
+        approval_default: "approve" | "reject";
       }>
     ) =>
       request<Task>(`/tasks/${id}`, {
@@ -390,6 +415,12 @@ export const api = {
       );
     },
     xcom: (id: string) => request<{ run_id: string; xcom: Array<{ key: string; value: string }> }>(`/task-runs/${id}/xcom`),
+    question: (id: string) => request<{ run_id: string; question: Question | null }>(`/task-runs/${id}/question`),
+    answer: (id: string, decision: "approve" | "reject", note?: string) =>
+      request<{ id: string; task_id: string; status: string }>(`/task-runs/${id}/answer`, {
+        method: "POST",
+        body: JSON.stringify({ decision, note }),
+      }),
   },
   flows: {
     list: () => request<Flow[]>("/flows"),
